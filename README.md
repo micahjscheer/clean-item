@@ -1,6 +1,6 @@
-# CleanItem - Post-Detail Photo Cleaner
+# CleanItem - Post-Detail Photo Cleaner + Pricing Research
 
-AI-powered tool to clean photos by removing dust, dirt, and smudges while preserving every detail, defect, and exact composition. Powered by Google's Gemini image generation.
+AI-powered tool to clean photos by removing dust, dirt, and smudges while preserving every detail, defect, and exact composition. Also includes product identification and pricing research powered by Gemini 3 Pro Vision and OpenAI.
 
 ## Features
 
@@ -10,12 +10,14 @@ AI-powered tool to clean photos by removing dust, dirt, and smudges while preser
 - **Real-time progress** - Live job status updates via Convex subscriptions
 - **Before/After viewer** - Interactive slider to compare original vs cleaned
 - **Batch download** - Download all cleaned images as a ZIP
+- **Product research** - Gemini 3 Pro Vision extraction + OpenAI web research
+- **Pricing summary** - New vs used price ranges + recommended price by condition
 
 ## Tech Stack
 
 - **Frontend**: Vite + React + TanStack Router + Tailwind CSS
 - **Backend**: Convex (database, file storage, actions)
-- **AI**: Google Gemini (image generation/editing)
+- **AI**: Google Gemini (vision + image generation/editing), OpenAI (research)
 
 ## Setup
 
@@ -46,7 +48,18 @@ This will:
 3. In the Convex dashboard, go to **Settings → Environment Variables**
 4. Add `GOOGLE_API_KEY` with your API key
 
-### 4. Run the app
+Optional: set `GEMINI_VISION_MODEL_ID` to override the vision model
+(defaults to `gemini-3.0-pro-vision`).
+
+### 4. Set up OpenAI API Key
+
+1. Create an API key at [OpenAI](https://platform.openai.com/)
+2. In the Convex dashboard, go to **Settings → Environment Variables**
+3. Add `OPENAI_API_KEY` with your API key
+
+Optional: set `OPENAI_RESEARCH_MODEL` (defaults to `gpt-4.1`).
+
+### 5. Run the app
 
 In one terminal, run Convex:
 
@@ -70,6 +83,7 @@ clean-item/
 │   ├── schema.ts          # Database schema (uploads, images, jobs, outputs)
 │   ├── uploads.ts         # File upload mutations/queries
 │   ├── jobs.ts            # Job processing + Gemini API integration
+│   ├── research.ts        # Product research + OpenAI pricing analysis
 │   └── outputs.ts         # Output queries
 ├── src/
 │   ├── components/        # React components
@@ -77,6 +91,8 @@ clean-item/
 │   │   ├── ImageGrid.tsx
 │   │   ├── OptionsPanel.tsx
 │   │   ├── JobsPanel.tsx
+│   │   ├── ResearchOptionsPanel.tsx
+│   │   ├── ResearchPanel.tsx
 │   │   └── BeforeAfterViewer.tsx
 │   ├── routes/            # TanStack Router pages
 │   ├── lib/utils.ts       # Utility functions
@@ -92,6 +108,7 @@ clean-item/
 | `images` | uploadId, storageId, fileName, width, height, mimeType |
 | `jobs` | imageId, status, progressPct, error, modelId, promptVersion, cleanlinessLevel, targetOutput, retryCount |
 | `outputs` | jobId, storageId, width, height, notes |
+| `productResearch` | imageId, status, progressPct, error, condition, extractModelId, researchModelId, extraction, product, pricing |
 
 ## Prompt Engineering
 
@@ -103,16 +120,16 @@ The AI is given strict instructions to:
 
 ## Configuration
 
-The model ID can be changed in `convex/jobs.ts`:
+The model ID can be changed in `convex/jobs.ts` and `convex/research.ts`:
 
 ```typescript
 const MODEL_ID = "gemini-2.0-flash-exp";
 ```
 
-Available models:
+Available models (examples):
 - `gemini-2.0-flash-exp` - Fast, good quality
 - `gemini-2.0-pro-exp` - Higher quality, slower
-- Future: `gemini-3-pro-image` when available
+- `gemini-3.0-pro-vision` - Vision extraction for research
 
 ## License
 

@@ -5,11 +5,15 @@ import { UploadZone } from "@/components/UploadZone";
 import { ImageGrid } from "@/components/ImageGrid";
 import { JobsPanel } from "@/components/JobsPanel";
 import { OptionsPanel } from "@/components/OptionsPanel";
-import { generateId } from "@/lib/utils";
+import { ResearchOptionsPanel } from "@/components/ResearchOptionsPanel";
+import { ResearchPanel } from "@/components/ResearchPanel";
+import { cn, generateId } from "@/lib/utils";
 import type { Id } from "../../convex/_generated/dataModel";
 
 export type CleanlinessLevel = "light" | "standard" | "deep";
 export type TargetOutput = "match" | "2k" | "4k";
+export type ProcessingMode = "clean" | "research";
+export type ItemCondition = "new" | "like_new" | "good" | "fair" | "poor";
 
 export interface UploadedImage {
   file: File;
@@ -23,26 +27,34 @@ export function IndexPage() {
   const [currentUploadId, setCurrentUploadId] = useState<Id<"uploads"> | null>(null);
   const [cleanlinessLevel, setCleanlinessLevel] = useState<CleanlinessLevel>("standard");
   const [targetOutput, setTargetOutput] = useState<TargetOutput>("match");
+  const [mode, setMode] = useState<ProcessingMode>("clean");
+  const [condition, setCondition] = useState<ItemCondition>("good");
   const [isProcessing, setIsProcessing] = useState(false);
 
   const createUpload = useMutation(api.uploads.createUpload);
   const addImage = useMutation(api.uploads.addImage);
   const generateUploadUrl = useMutation(api.uploads.generateUploadUrl);
   const startEdit = useMutation(api.jobs.startEdit);
+  const startResearch = useMutation(api.research.startResearch);
   
   const jobs = useQuery(
     api.jobs.getJobsByUpload,
-    currentUploadId ? { uploadId: currentUploadId } : "skip"
+    mode === "clean" && currentUploadId ? { uploadId: currentUploadId } : "skip"
   );
 
   const outputs = useQuery(
     api.outputs.getOutputsByUpload,
-    currentUploadId ? { uploadId: currentUploadId } : "skip"
+    mode === "clean" && currentUploadId ? { uploadId: currentUploadId } : "skip"
   );
 
   const images = useQuery(
     api.uploads.getImagesByUpload,
     currentUploadId ? { uploadId: currentUploadId } : "skip"
+  );
+
+  const researchJobs = useQuery(
+    api.research.getResearchByUpload,
+    mode === "research" && currentUploadId ? { uploadId: currentUploadId } : "skip"
   );
 
   const handleFilesAdded = useCallback((files: File[]) => {
@@ -106,20 +118,44 @@ export function IndexPage() {
         imageIds.push(imageId);
       }
 
-      // Start edit jobs for all images in parallel
-      await Promise.all(
-        imageIds.map((imageId) =>
-          startEdit({
-            imageId,
-            cleanlinessLevel,
-            targetOutput,
-          })
-        )
-      );
+      if (mode === "clean") {
+        // Start edit jobs for all images in parallel
+        await Promise.all(
+          imageIds.map((imageId) =>
+            startEdit({
+              imageId,
+              cleanlinessLevel,
+              targetOutput,
+            })
+          )
+        );
+      } else {
+        await Promise.all(
+          imageIds.map((imageId) =>
+            startResearch({
+              imageId,
+              condition,
+            })
+          )
+        );
+      }
     } catch (error) {
       console.error("Failed to start processing:", error);
+      setIsProcessing(false);
     }
-  }, [uploadedImages, sessionId, createUpload, generateUploadUrl, addImage, startEdit, cleanlinessLevel, targetOutput]);
+  }, [
+    uploadedImages,
+    sessionId,
+    createUpload,
+    generateUploadUrl,
+    addImage,
+    startEdit,
+    startResearch,
+    cleanlinessLevel,
+    targetOutput,
+    mode,
+    condition,
+  ]);
 
   const handleReset = useCallback(() => {
     uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
@@ -131,6 +167,9 @@ export function IndexPage() {
   const allJobsComplete = jobs?.every(
     (job) => job.status === "succeeded" || job.status === "failed"
   );
+  const allResearchComplete = researchJobs?.every(
+    (job) => job.status === "succeeded" || job.status === "failed"
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
@@ -138,11 +177,11 @@ export function IndexPage() {
         <div className="space-y-8 animate-fade-in">
           <div className="text-center space-y-3">
             <h2 className="text-3xl font-semibold tracking-tight">
-              Clean Your Photos
+              Clean or Price Your Items
             </h2>
             <p className="text-[var(--color-text-muted)] max-w-xl mx-auto">
-              Upload photos and our AI will remove dust, dirt, and smudges while
-              preserving every detail, defect, and the exact composition.
+              Upload photos to clean them or run product research with pricing
+              recommendations.
             </p>
           </div>
 
@@ -155,26 +194,79 @@ export function IndexPage() {
                 onRemove={handleRemoveImage}
               />
               
-              <OptionsPanel
-                cleanlinessLevel={cleanlinessLevel}
-                setCleanlinessLevel={setCleanlinessLevel}
-                targetOutput={targetOutput}
-                setTargetOutput={setTargetOutput}
-                onStart={handleStartProcessing}
-                imageCount={uploadedImages.length}
-              />
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)]">
+                  <label className="text-sm font-medium text-[var(--color-text)]">
+                    Workflow
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 mt-3">
+                    <button
+                      onClick={() => setMode("clean")}
+                      className={cn(
+                        "px-4 py-3 rounded-xl border text-sm font-medium transition-all",
+                        mode === "clean"
+                          ? "bg-[var(--color-accent-muted)] border-[var(--color-accent)] text-[var(--color-accent)]"
+                          : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]"
+                      )}
+                    >
+                      Photo Cleaning
+                    </button>
+                    <button
+                      onClick={() => setMode("research")}
+                      className={cn(
+                        "px-4 py-3 rounded-xl border text-sm font-medium transition-all",
+                        mode === "research"
+                          ? "bg-[var(--color-accent-muted)] border-[var(--color-accent)] text-[var(--color-accent)]"
+                          : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]"
+                      )}
+                    >
+                      Product Research
+                    </button>
+                  </div>
+                </div>
+
+                {mode === "clean" ? (
+                  <OptionsPanel
+                    cleanlinessLevel={cleanlinessLevel}
+                    setCleanlinessLevel={setCleanlinessLevel}
+                    targetOutput={targetOutput}
+                    setTargetOutput={setTargetOutput}
+                    onStart={handleStartProcessing}
+                    imageCount={uploadedImages.length}
+                  />
+                ) : (
+                  <ResearchOptionsPanel
+                    condition={condition}
+                    setCondition={setCondition}
+                    onStart={handleStartProcessing}
+                    imageCount={uploadedImages.length}
+                  />
+                )}
+              </div>
             </>
           )}
         </div>
       ) : (
-        <JobsPanel
-          jobs={jobs ?? []}
-          outputs={outputs ?? []}
-          images={images ?? []}
-          uploadedImages={uploadedImages}
-          allComplete={allJobsComplete ?? false}
-          onReset={handleReset}
-        />
+        <>
+          {mode === "clean" ? (
+            <JobsPanel
+              jobs={jobs ?? []}
+              outputs={outputs ?? []}
+              images={images ?? []}
+              uploadedImages={uploadedImages}
+              allComplete={allJobsComplete ?? false}
+              onReset={handleReset}
+            />
+          ) : (
+            <ResearchPanel
+              researchJobs={researchJobs ?? []}
+              images={images ?? []}
+              uploadedImages={uploadedImages}
+              allComplete={allResearchComplete ?? false}
+              onReset={handleReset}
+            />
+          )}
+        </>
       )}
     </div>
   );

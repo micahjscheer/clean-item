@@ -15,6 +15,7 @@ import type {
 } from "convex/server";
 import type * as jobs from "../jobs.js";
 import type * as outputs from "../outputs.js";
+import type * as research from "../research.js";
 import type * as uploads from "../uploads.js";
 
 /**
@@ -28,6 +29,7 @@ import type * as uploads from "../uploads.js";
 declare const fullApi: ApiFromModules<{
   jobs: typeof jobs;
   outputs: typeof outputs;
+  research: typeof research;
   uploads: typeof uploads;
 }>;
 export declare const api: FilterApi<

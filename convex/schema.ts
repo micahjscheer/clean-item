@@ -54,4 +54,30 @@ export default defineSchema({
     notes: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_job", ["jobId"]),
+
+  productResearch: defineTable({
+    imageId: v.id("images"),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("succeeded"),
+      v.literal("failed")
+    ),
+    progressPct: v.number(),
+    error: v.optional(v.string()),
+    condition: v.union(
+      v.literal("new"),
+      v.literal("like_new"),
+      v.literal("good"),
+      v.literal("fair"),
+      v.literal("poor")
+    ),
+    extractModelId: v.string(),
+    researchModelId: v.string(),
+    extraction: v.optional(v.any()),
+    product: v.optional(v.any()),
+    pricing: v.optional(v.any()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_image", ["imageId"]),
 });
