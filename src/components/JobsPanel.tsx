@@ -28,6 +28,7 @@ interface JobsPanelProps {
   allComplete: boolean;
   onReset: () => void;
   showReset?: boolean;
+  title?: string;
 }
 
 export function JobsPanel({
@@ -38,6 +39,7 @@ export function JobsPanel({
   allComplete,
   onReset,
   showReset = true,
+  title,
 }: JobsPanelProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedImageId, setSelectedImageId] = useState<Id<"images"> | null>(null);
@@ -107,7 +109,9 @@ export function JobsPanel({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Processing</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">
+            {title ?? "Processing"}
+          </h2>
           <p className="text-sm text-[var(--color-text-muted)] mt-1">
             {allComplete
               ? `Completed • ${succeededCount} succeeded, ${failedCount} failed`

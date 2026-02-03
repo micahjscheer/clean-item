@@ -7,6 +7,7 @@ import { JobsPanel } from "@/components/JobsPanel";
 import { OptionsPanel } from "@/components/OptionsPanel";
 import { ResearchOptionsPanel } from "@/components/ResearchOptionsPanel";
 import { ResearchPanel } from "@/components/ResearchPanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, generateId } from "@/lib/utils";
 import type { Id } from "../../convex/_generated/dataModel";
 
@@ -27,7 +28,7 @@ export function IndexPage() {
   const [currentUploadId, setCurrentUploadId] = useState<Id<"uploads"> | null>(null);
   const [cleanlinessLevel, setCleanlinessLevel] = useState<CleanlinessLevel>("standard");
   const [targetOutput, setTargetOutput] = useState<TargetOutput>("match");
-  const [mode, setMode] = useState<ProcessingMode>("clean");
+  const [mode, setMode] = useState<ProcessingMode>("listing");
   const [condition, setCondition] = useState<ItemCondition>("good");
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -215,49 +216,25 @@ export function IndexPage() {
                 onRemove={handleRemoveImage}
               />
               
-              <div className="space-y-4">
-                <div className="p-4 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)]">
+              <Tabs
+                value={mode}
+                onValueChange={(value) =>
+                  setMode(value as ProcessingMode)
+                }
+                className="space-y-4"
+              >
+                <div className="p-4 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)] space-y-3">
                   <label className="text-sm font-medium text-[var(--color-text)]">
                     Workflow
                   </label>
-                  <div className="grid grid-cols-3 gap-2 mt-3">
-                    <button
-                      onClick={() => setMode("clean")}
-                      className={cn(
-                        "px-4 py-3 rounded-xl border text-sm font-medium transition-all",
-                        mode === "clean"
-                          ? "bg-[var(--color-accent-muted)] border-[var(--color-accent)] text-[var(--color-accent)]"
-                          : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]"
-                      )}
-                    >
-                      Photo Cleaning
-                    </button>
-                    <button
-                      onClick={() => setMode("research")}
-                      className={cn(
-                        "px-4 py-3 rounded-xl border text-sm font-medium transition-all",
-                        mode === "research"
-                          ? "bg-[var(--color-accent-muted)] border-[var(--color-accent)] text-[var(--color-accent)]"
-                          : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]"
-                      )}
-                    >
-                      Product Research
-                    </button>
-                    <button
-                      onClick={() => setMode("listing")}
-                      className={cn(
-                        "px-4 py-3 rounded-xl border text-sm font-medium transition-all",
-                        mode === "listing"
-                          ? "bg-[var(--color-accent-muted)] border-[var(--color-accent)] text-[var(--color-accent)]"
-                          : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]"
-                      )}
-                    >
-                      Listing Workflow
-                    </button>
-                  </div>
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="listing">Listing Workflow</TabsTrigger>
+                    <TabsTrigger value="clean">Photo Cleaning</TabsTrigger>
+                    <TabsTrigger value="research">Product Research</TabsTrigger>
+                  </TabsList>
                 </div>
 
-                {mode === "clean" ? (
+                <TabsContent value="clean">
                   <OptionsPanel
                     cleanlinessLevel={cleanlinessLevel}
                     setCleanlinessLevel={setCleanlinessLevel}
@@ -266,14 +243,18 @@ export function IndexPage() {
                     onStart={handleStartProcessing}
                     imageCount={uploadedImages.length}
                   />
-                ) : mode === "research" ? (
+                </TabsContent>
+
+                <TabsContent value="research">
                   <ResearchOptionsPanel
                     condition={condition}
                     setCondition={setCondition}
                     onStart={handleStartProcessing}
                     imageCount={uploadedImages.length}
                   />
-                ) : (
+                </TabsContent>
+
+                <TabsContent value="listing">
                   <div className="space-y-4">
                     <OptionsPanel
                       cleanlinessLevel={cleanlinessLevel}
@@ -305,8 +286,8 @@ export function IndexPage() {
                       {uploadedImages.length === 1 ? "Item" : "Items"}
                     </button>
                   </div>
-                )}
-              </div>
+                </TabsContent>
+              </Tabs>
             </>
           )}
         </div>
@@ -331,6 +312,37 @@ export function IndexPage() {
             />
           ) : (
             <div className="space-y-8">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold tracking-tight">
+                    Listing Workflow
+                  </h2>
+                  <p className="text-sm text-[var(--color-text-muted)] mt-1">
+                    Cleaning:{" "}
+                    {jobs
+                      ? jobs.filter((job) => job.status === "succeeded").length
+                      : 0}
+                    /{jobs ? jobs.length : 0} complete • Research:{" "}
+                    {researchJobs
+                      ? researchJobs.filter((job) => job.status === "succeeded")
+                          .length
+                      : 0}
+                    /{researchJobs ? researchJobs.length : 0} complete
+                  </p>
+                </div>
+                <button
+                  onClick={handleReset}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all",
+                    "bg-[var(--color-bg-elevated)] border border-[var(--color-border)]",
+                    "text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
+                    "hover:bg-[var(--color-bg-hover)]"
+                  )}
+                >
+                  New Batch
+                </button>
+              </div>
+
               <JobsPanel
                 jobs={jobs ?? []}
                 outputs={outputs ?? []}
@@ -338,14 +350,18 @@ export function IndexPage() {
                 uploadedImages={uploadedImages}
                 allComplete={allJobsComplete ?? false}
                 onReset={handleReset}
+                showReset={false}
+                title="Cleaning"
               />
               <ResearchPanel
                 researchJobs={researchJobs ?? []}
                 images={images ?? []}
                 uploadedImages={uploadedImages}
+                outputs={outputs ?? []}
                 allComplete={allResearchComplete ?? false}
                 onReset={handleReset}
                 showReset={false}
+                title="Listing Research"
               />
             </div>
           )}

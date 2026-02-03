@@ -1,5 +1,6 @@
 import { Outlet } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
+import { SignedIn, UserButton } from "@clerk/clerk-react";
 
 export function RootLayout() {
   return (
@@ -15,10 +16,20 @@ export function RootLayout() {
               <p className="text-xs text-[var(--color-text-muted)] -mt-0.5">Post-Detail Photo Cleaner</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-[var(--color-text-subtle)]">
+          <div className="flex items-center gap-3 text-xs text-[var(--color-text-subtle)]">
             <span className="px-2 py-1 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]">
               Gemini 3 Pro Vision + OpenAI Research
             </span>
+            <SignedIn>
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox:
+                      "w-8 h-8 border border-[var(--color-border)]",
+                  },
+                }}
+              />
+            </SignedIn>
           </div>
         </div>
       </header>

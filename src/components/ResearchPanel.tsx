@@ -14,14 +14,17 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 
 type ResearchJob = Doc<"productResearch">;
 type ImageWithUrl = Doc<"images"> & { url: string | null };
+type Output = Doc<"outputs"> & { url: string | null; imageId: Id<"images"> };
 
 interface ResearchPanelProps {
   researchJobs: ResearchJob[];
   images: ImageWithUrl[];
   uploadedImages: UploadedImage[];
+  outputs?: Output[];
   allComplete: boolean;
   onReset: () => void;
   showReset?: boolean;
+  title?: string;
 }
 
 const conditionLabels: Record<string, string> = {
@@ -36,9 +39,11 @@ export function ResearchPanel({
   researchJobs,
   images,
   uploadedImages,
+  outputs,
   allComplete,
   onReset,
   showReset = true,
+  title,
 }: ResearchPanelProps) {
   const [selectedImageId, setSelectedImageId] = useState<Id<"images"> | null>(
     null
@@ -69,10 +74,19 @@ export function ResearchPanel({
     return map;
   }, [researchJobs]);
 
+  const outputMap = useMemo(() => {
+    if (!outputs) return null;
+    const map = new Map<string, Output>();
+    outputs.forEach((output) => map.set(output.imageId, output));
+    return map;
+  }, [outputs]);
+
   const selectedResearch = selectedImageId
     ? researchMap.get(selectedImageId)
     : null;
   const selectedImage = selectedImageId ? imageMap.get(selectedImageId) : null;
+  const selectedOutput =
+    selectedImageId && outputMap ? outputMap.get(selectedImageId) : null;
   const selectedPreview = selectedImage
     ? uploadedImages.find((img) => img.file.name === selectedImage.fileName)
         ?.preview
@@ -83,7 +97,7 @@ export function ResearchPanel({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">
-            Product Research
+            {title ?? "Product Research"}
           </h2>
           <p className="text-sm text-[var(--color-text-muted)] mt-1">
             {allComplete
@@ -143,6 +157,10 @@ export function ResearchPanel({
             listing?.recommended_price ?? pricing?.recommended?.price ?? null;
           const currency = pricing?.currency ?? "USD";
 
+          const output = outputMap?.get(job.imageId);
+          const previewUrl =
+            output?.url || uploadedImg?.preview || image?.url || "";
+
           return (
             <div
               key={job._id}
@@ -164,7 +182,7 @@ export function ResearchPanel({
               }}
             >
               <img
-                src={uploadedImg?.preview || image?.url || ""}
+                src={previewUrl}
                 alt={image?.fileName || ""}
                 className={cn(
                   "w-full h-full object-cover transition-all duration-300",
@@ -298,7 +316,12 @@ export function ResearchPanel({
               <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr]">
                 <div className="space-y-4">
                   <img
-                    src={selectedImage.url || selectedPreview || ""}
+                    src={
+                      selectedOutput?.url ||
+                      selectedImage.url ||
+                      selectedPreview ||
+                      ""
+                    }
                     alt={selectedImage.fileName}
                     className="w-full rounded-xl border border-[var(--color-border)]"
                   />

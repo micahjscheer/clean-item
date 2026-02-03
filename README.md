@@ -17,8 +17,10 @@ AI-powered tool to clean photos by removing dust, dirt, and smudges while preser
 ## Tech Stack
 
 - **Frontend**: Vite + React + TanStack Router + Tailwind CSS
+- **UI**: shadcn/ui components + Origin UI blocks
 - **Backend**: Convex (database, file storage, actions)
 - **AI**: Google Gemini (vision + image generation/editing), OpenAI (research)
+- **Auth**: Clerk
 
 ## Setup
 
@@ -60,7 +62,17 @@ Optional: set `GEMINI_VISION_MODEL_ID` to override the vision model
 
 Optional: set `OPENAI_RESEARCH_MODEL` (defaults to `gpt-4.1`).
 
-### 5. Run the app
+### 5. Set up Clerk
+
+1. Create an app in the [Clerk dashboard](https://dashboard.clerk.com/)
+2. Copy your publishable key
+3. Add it to `.env.local`:
+
+```bash
+VITE_CLERK_PUBLISHABLE_KEY=pk_live_...
+```
+
+### 6. Run the app
 
 In one terminal, run Convex:
 
