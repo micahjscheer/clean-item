@@ -27,7 +27,7 @@ export function RootLayout() {
       </main>
       <footer className="border-t border-[var(--color-border-subtle)] py-4">
         <div className="max-w-7xl mx-auto px-6 text-center text-xs text-[var(--color-text-subtle)]">
-          Upload photos -> Clean or research -> Price with confidence
+          Upload photos -> Clean, research, and list -> Price with confidence
         </div>
       </footer>
     </div>

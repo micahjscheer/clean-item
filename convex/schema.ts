@@ -77,6 +77,7 @@ export default defineSchema({
     extraction: v.optional(v.any()),
     product: v.optional(v.any()),
     pricing: v.optional(v.any()),
+    listing: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_image", ["imageId"]),

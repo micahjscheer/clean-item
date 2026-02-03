@@ -12,6 +12,7 @@ AI-powered tool to clean photos by removing dust, dirt, and smudges while preser
 - **Batch download** - Download all cleaned images as a ZIP
 - **Product research** - Gemini 3 Pro Vision extraction + OpenAI web research
 - **Pricing summary** - New vs used price ranges + recommended price by condition
+- **Listing workflow** - Generates title, description, and selling notes
 
 ## Tech Stack
 
@@ -108,7 +109,7 @@ clean-item/
 | `images` | uploadId, storageId, fileName, width, height, mimeType |
 | `jobs` | imageId, status, progressPct, error, modelId, promptVersion, cleanlinessLevel, targetOutput, retryCount |
 | `outputs` | jobId, storageId, width, height, notes |
-| `productResearch` | imageId, status, progressPct, error, condition, extractModelId, researchModelId, extraction, product, pricing |
+| `productResearch` | imageId, status, progressPct, error, condition, extractModelId, researchModelId, extraction, product, pricing, listing |
 
 ## Prompt Engineering
 

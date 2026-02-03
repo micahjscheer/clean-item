@@ -21,6 +21,7 @@ interface ResearchPanelProps {
   uploadedImages: UploadedImage[];
   allComplete: boolean;
   onReset: () => void;
+  showReset?: boolean;
 }
 
 const conditionLabels: Record<string, string> = {
@@ -37,6 +38,7 @@ export function ResearchPanel({
   uploadedImages,
   allComplete,
   onReset,
+  showReset = true,
 }: ResearchPanelProps) {
   const [selectedImageId, setSelectedImageId] = useState<Id<"images"> | null>(
     null
@@ -90,20 +92,22 @@ export function ResearchPanel({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onReset}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all",
-              "bg-[var(--color-bg-elevated)] border border-[var(--color-border)]",
-              "text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
-              "hover:bg-[var(--color-bg-hover)]"
-            )}
-          >
-            <RotateCcw className="w-4 h-4" />
-            New Batch
-          </button>
-        </div>
+        {showReset && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onReset}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all",
+                "bg-[var(--color-bg-elevated)] border border-[var(--color-border)]",
+                "text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
+                "hover:bg-[var(--color-bg-hover)]"
+              )}
+            >
+              <RotateCcw className="w-4 h-4" />
+              New Batch
+            </button>
+          </div>
+        )}
       </div>
 
       {!allComplete && (
@@ -132,7 +136,11 @@ export function ResearchPanel({
             currency?: string | null;
             recommended?: { price?: number | null };
           } | null;
-          const recommended = pricing?.recommended?.price ?? null;
+          const listing = job.listing as {
+            recommended_price?: number | null;
+          } | null;
+          const recommended =
+            listing?.recommended_price ?? pricing?.recommended?.price ?? null;
           const currency = pricing?.currency ?? "USD";
 
           return (
@@ -273,9 +281,14 @@ export function ResearchPanel({
                     {getProductName(selectedResearch)}
                   </h3>
                   <p className="text-xs text-[var(--color-text-muted)]">
-                    Condition:{" "}
+                    Seller condition:{" "}
                     {conditionLabels[selectedResearch.condition] ??
                       selectedResearch.condition}
+                    {getExtractionCondition(selectedResearch)
+                      ? ` | AI condition: ${getExtractionCondition(
+                          selectedResearch
+                        )}`
+                      : ""}
                   </p>
                 </div>
               </div>
@@ -293,6 +306,7 @@ export function ResearchPanel({
 
                 <div className="space-y-5">
                   {renderIdentification(selectedResearch)}
+                  {renderListing(selectedResearch)}
                   {renderPricing(selectedResearch)}
                   {renderExtraction(selectedResearch)}
                   {renderSources(selectedResearch)}
@@ -411,12 +425,84 @@ function renderPricing(research: ResearchJob) {
   );
 }
 
+function renderListing(research: ResearchJob) {
+  const listing = (research.listing ?? {}) as {
+    title?: string | null;
+    description?: string | null;
+    reason_for_selling?: string | null;
+    issues?: string[] | null;
+    loved?: string[] | null;
+    highlights?: string[] | null;
+    condition?: string | null;
+    recommended_price?: number | null;
+  };
+  const pricing = (research.pricing ?? {}) as {
+    currency?: string | null;
+  };
+  const currency = pricing.currency ?? "USD";
+
+  const hasListing =
+    listing.title ||
+    listing.description ||
+    listing.reason_for_selling ||
+    (listing.issues && listing.issues.length > 0) ||
+    (listing.loved && listing.loved.length > 0) ||
+    (listing.highlights && listing.highlights.length > 0) ||
+    listing.condition ||
+    listing.recommended_price !== null;
+
+  if (!hasListing) return null;
+
+  return (
+    <section className="space-y-2">
+      <h4 className="text-sm font-semibold text-[var(--color-text)]">
+        Listing Copy
+      </h4>
+      <div className="space-y-3 text-sm">
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-[var(--color-text-subtle)]">
+            Title
+          </p>
+          <p className="text-sm text-[var(--color-text)]">
+            {listing.title ?? "N/A"}
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-[var(--color-text-subtle)]">
+            Description
+          </p>
+          <p className="text-sm text-[var(--color-text)] whitespace-pre-line">
+            {listing.description ?? "N/A"}
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <InfoRow
+          label="Reason for Selling"
+          value={listing.reason_for_selling}
+        />
+        <InfoRow label="Condition" value={listing.condition} />
+        <InfoRow
+          label="Recommended Price"
+          value={formatCurrency(listing.recommended_price ?? null, currency)}
+        />
+        <InfoRow label="Highlights" value={formatList(listing.highlights)} />
+        <InfoRow label="Loved" value={formatList(listing.loved)} />
+        <InfoRow label="Issues" value={formatList(listing.issues)} />
+      </div>
+    </section>
+  );
+}
+
 function renderExtraction(research: ResearchJob) {
   const extraction = (research.extraction ?? {}) as {
     materials?: string[] | null;
     colors?: string[] | null;
     condition?: string | null;
     visible_wear?: string[] | null;
+    issues?: string[] | null;
+    missing_parts?: string[] | null;
+    included_items?: string[] | null;
     markings?: string[] | null;
     serial_numbers?: string[] | null;
     accessories?: string[] | null;
@@ -427,6 +513,9 @@ function renderExtraction(research: ResearchJob) {
     (extraction.materials && extraction.materials.length > 0) ||
     (extraction.colors && extraction.colors.length > 0) ||
     (extraction.visible_wear && extraction.visible_wear.length > 0) ||
+    (extraction.issues && extraction.issues.length > 0) ||
+    (extraction.missing_parts && extraction.missing_parts.length > 0) ||
+    (extraction.included_items && extraction.included_items.length > 0) ||
     (extraction.markings && extraction.markings.length > 0) ||
     (extraction.serial_numbers && extraction.serial_numbers.length > 0) ||
     (extraction.accessories && extraction.accessories.length > 0) ||
@@ -450,6 +539,15 @@ function renderExtraction(research: ResearchJob) {
         <InfoRow
           label="Visible Wear"
           value={formatList(extraction.visible_wear)}
+        />
+        <InfoRow label="Issues" value={formatList(extraction.issues)} />
+        <InfoRow
+          label="Missing Parts"
+          value={formatList(extraction.missing_parts)}
+        />
+        <InfoRow
+          label="Included Items"
+          value={formatList(extraction.included_items)}
         />
         <InfoRow label="Markings" value={formatList(extraction.markings)} />
         <InfoRow
@@ -553,6 +651,14 @@ function formatList(values?: string[] | null) {
 }
 
 function getProductName(research: ResearchJob) {
+  const listing = (research.listing ?? {}) as { title?: string | null };
   const product = (research.product ?? {}) as { name?: string | null };
-  return product.name ?? "Product Research";
+  return listing.title ?? product.name ?? "Product Research";
+}
+
+function getExtractionCondition(research: ResearchJob) {
+  const extraction = (research.extraction ?? {}) as {
+    condition?: string | null;
+  };
+  return extraction.condition ?? null;
 }

@@ -27,6 +27,7 @@ interface JobsPanelProps {
   uploadedImages: UploadedImage[];
   allComplete: boolean;
   onReset: () => void;
+  showReset?: boolean;
 }
 
 export function JobsPanel({
@@ -36,6 +37,7 @@ export function JobsPanel({
   uploadedImages,
   allComplete,
   onReset,
+  showReset = true,
 }: JobsPanelProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedImageId, setSelectedImageId] = useState<Id<"images"> | null>(null);
@@ -134,18 +136,20 @@ export function JobsPanel({
               Download All ({succeededCount})
             </button>
           )}
-          <button
-            onClick={onReset}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all",
-              "bg-[var(--color-bg-elevated)] border border-[var(--color-border)]",
-              "text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
-              "hover:bg-[var(--color-bg-hover)]"
-            )}
-          >
-            <RotateCcw className="w-4 h-4" />
-            New Batch
-          </button>
+          {showReset && (
+            <button
+              onClick={onReset}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all",
+                "bg-[var(--color-bg-elevated)] border border-[var(--color-border)]",
+                "text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
+                "hover:bg-[var(--color-bg-hover)]"
+              )}
+            >
+              <RotateCcw className="w-4 h-4" />
+              New Batch
+            </button>
+          )}
         </div>
       </div>
 

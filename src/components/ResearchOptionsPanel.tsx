@@ -13,6 +13,8 @@ interface ResearchOptionsPanelProps {
   setCondition: (condition: ItemCondition) => void;
   onStart: () => void;
   imageCount: number;
+  showStart?: boolean;
+  startLabel?: string;
 }
 
 const conditionOptions: {
@@ -58,6 +60,8 @@ export function ResearchOptionsPanel({
   setCondition,
   onStart,
   imageCount,
+  showStart = true,
+  startLabel,
 }: ResearchOptionsPanelProps) {
   return (
     <div className="space-y-6 p-6 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)]">
@@ -98,21 +102,26 @@ export function ResearchOptionsPanel({
 
       <div className="text-xs text-[var(--color-text-subtle)]">
         Uses Gemini 3 Pro Vision for detail extraction and OpenAI research for
-        pricing.
+        pricing and listing copy.
       </div>
 
-      <button
-        onClick={onStart}
-        className={cn(
-          "w-full py-4 px-6 rounded-xl font-semibold text-base transition-all duration-300",
-          "bg-gradient-to-r from-[var(--color-accent)] to-cyan-500",
-          "text-[var(--color-bg)] shadow-lg shadow-cyan-500/20",
-          "hover:shadow-xl hover:shadow-cyan-500/30 hover:scale-[1.01]",
-          "active:scale-[0.99]"
-        )}
-      >
-        Start Research {imageCount} {imageCount === 1 ? "Item" : "Items"}
-      </button>
+      {showStart && (
+        <button
+          onClick={onStart}
+          className={cn(
+            "w-full py-4 px-6 rounded-xl font-semibold text-base transition-all duration-300",
+            "bg-gradient-to-r from-[var(--color-accent)] to-cyan-500",
+            "text-[var(--color-bg)] shadow-lg shadow-cyan-500/20",
+            "hover:shadow-xl hover:shadow-cyan-500/30 hover:scale-[1.01]",
+            "active:scale-[0.99]"
+          )}
+        >
+          {startLabel ??
+            `Start Research ${imageCount} ${
+              imageCount === 1 ? "Item" : "Items"
+            }`}
+        </button>
+      )}
     </div>
   );
 }

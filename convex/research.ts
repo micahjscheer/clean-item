@@ -99,6 +99,7 @@ export const updateResearch = internalMutation({
     extraction: v.optional(v.any()),
     product: v.optional(v.any()),
     pricing: v.optional(v.any()),
+    listing: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const updates: Record<string, unknown> = {
@@ -111,6 +112,7 @@ export const updateResearch = internalMutation({
     if (args.extraction !== undefined) updates.extraction = args.extraction;
     if (args.product !== undefined) updates.product = args.product;
     if (args.pricing !== undefined) updates.pricing = args.pricing;
+    if (args.listing !== undefined) updates.listing = args.listing;
 
     await ctx.db.patch(args.researchId, updates);
   },
@@ -199,12 +201,20 @@ export const processResearch = internalAction({
         researchResult.pricing,
         research.condition
       );
+      const normalizedListing = normalizeListing(
+        researchResult.listing,
+        normalizedProduct,
+        normalizedPricing,
+        research.condition,
+        extraction
+      );
 
       await ctx.runMutation(internal.research.updateResearch, {
         researchId: args.researchId,
         progressPct: 90,
         product: normalizedProduct,
         pricing: normalizedPricing,
+        listing: normalizedListing,
       });
 
       await ctx.runMutation(internal.research.updateResearch, {
@@ -336,13 +346,15 @@ async function callOpenAiResearch({
     throw new Error("OpenAI returned invalid research JSON");
   }
 
-  return parsed as { product: unknown; pricing: unknown };
+  return parsed as { product: unknown; pricing: unknown; listing: unknown };
 }
 
 function buildGeminiPrompt() {
   return [
     "You are a careful product inspector.",
     "From the image, extract the product details as JSON only.",
+    "Include condition and any visible issues or missing parts.",
+    "Condition should be one of: new, like new, good, fair, poor.",
     "Use the schema below and return null when unknown.",
     "Do not include any extra commentary or markdown.",
     "",
@@ -357,6 +369,9 @@ function buildGeminiPrompt() {
     '  "colors": string[] | null,',
     '  "condition": string | null,',
     '  "visible_wear": string[] | null,',
+    '  "issues": string[] | null,',
+    '  "missing_parts": string[] | null,',
+    '  "included_items": string[] | null,',
     '  "markings": string[] | null,',
     '  "serial_numbers": string[] | null,',
     '  "accessories": string[] | null,',
@@ -376,6 +391,12 @@ function buildOpenAiPrompt(extraction: unknown, condition: string) {
     "Provide confidence as 0-1 and a label (low, medium, high).",
     "Use multiple searches if needed to disambiguate similar products.",
     "Recommended price must reflect the stated condition.",
+    "Write a Facebook Marketplace ready listing title and description.",
+    "The description must include: reason for selling, any issues, and what they loved.",
+    "Include recommended_price in the listing output.",
+    "If reason for selling is unknown, suggest a neutral option like upgrading or decluttering.",
+    "Issues should reflect visible wear or missing parts from the extraction.",
+    "Use a friendly, concise tone that avoids exaggeration.",
     "Return JSON that matches the schema exactly.",
     "If you cannot find a value, return null.",
     "Provide 3-6 sources with URLs and prices when available.",
@@ -464,8 +485,41 @@ function buildOpenAiSchema() {
           },
           required: ["currency", "new", "used", "recommended"],
         },
+        listing: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: { type: ["string", "null"] },
+            description: { type: ["string", "null"] },
+            reason_for_selling: { type: ["string", "null"] },
+            issues: {
+              type: ["array", "null"],
+              items: { type: "string" },
+            },
+            loved: {
+              type: ["array", "null"],
+              items: { type: "string" },
+            },
+            highlights: {
+              type: ["array", "null"],
+              items: { type: "string" },
+            },
+            condition: { type: ["string", "null"] },
+            recommended_price: { type: ["number", "null"] },
+          },
+          required: [
+            "title",
+            "description",
+            "reason_for_selling",
+            "issues",
+            "loved",
+            "highlights",
+            "condition",
+            "recommended_price",
+          ],
+        },
       },
-      required: ["product", "pricing"],
+      required: ["product", "pricing", "listing"],
     },
   };
 }
@@ -617,6 +671,66 @@ function normalizePricing(pricing: any, condition: string) {
       rationale: recommendedRationale,
     },
     sources,
+  };
+}
+
+function normalizeListing(
+  listing: any,
+  product: ReturnType<typeof normalizeProduct>,
+  pricing: ReturnType<typeof normalizePricing>,
+  condition: string,
+  extraction: any
+) {
+  const title = normalizeString(listing?.title) ?? product.name ?? null;
+  const description = normalizeString(listing?.description);
+  const reasonForSelling = normalizeString(listing?.reason_for_selling);
+  const issuesFromListing = Array.isArray(listing?.issues)
+    ? listing.issues.filter((item: unknown) => typeof item === "string")
+    : null;
+  const issuesFromExtraction = Array.isArray(extraction?.issues)
+    ? extraction.issues.filter((item: unknown) => typeof item === "string")
+    : null;
+  const wearFromExtraction = Array.isArray(extraction?.visible_wear)
+    ? extraction.visible_wear.filter((item: unknown) => typeof item === "string")
+    : null;
+  const missingFromExtraction = Array.isArray(extraction?.missing_parts)
+    ? extraction.missing_parts.filter(
+        (item: unknown) => typeof item === "string"
+      )
+    : null;
+  const issues =
+    issuesFromListing ??
+    issuesFromExtraction ??
+    wearFromExtraction ??
+    missingFromExtraction ??
+    null;
+  const loved = Array.isArray(listing?.loved)
+    ? listing.loved.filter((item: unknown) => typeof item === "string")
+    : null;
+  const highlights = Array.isArray(listing?.highlights)
+    ? listing.highlights.filter((item: unknown) => typeof item === "string")
+    : null;
+  const listingCondition =
+    normalizeString(listing?.condition) ??
+    normalizeString(extraction?.condition) ??
+    condition ??
+    null;
+
+  const recommended =
+    pricing?.recommended?.price !== null &&
+    pricing?.recommended?.price !== undefined
+      ? pricing.recommended.price
+      : toNumber(listing?.recommended_price);
+
+  return {
+    title,
+    description,
+    reason_for_selling: reasonForSelling,
+    issues,
+    loved,
+    highlights,
+    condition: listingCondition,
+    recommended_price: recommended,
   };
 }
 

@@ -12,7 +12,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 
 export type CleanlinessLevel = "light" | "standard" | "deep";
 export type TargetOutput = "match" | "2k" | "4k";
-export type ProcessingMode = "clean" | "research";
+export type ProcessingMode = "clean" | "research" | "listing";
 export type ItemCondition = "new" | "like_new" | "good" | "fair" | "poor";
 
 export interface UploadedImage {
@@ -39,12 +39,16 @@ export function IndexPage() {
   
   const jobs = useQuery(
     api.jobs.getJobsByUpload,
-    mode === "clean" && currentUploadId ? { uploadId: currentUploadId } : "skip"
+    (mode === "clean" || mode === "listing") && currentUploadId
+      ? { uploadId: currentUploadId }
+      : "skip"
   );
 
   const outputs = useQuery(
     api.outputs.getOutputsByUpload,
-    mode === "clean" && currentUploadId ? { uploadId: currentUploadId } : "skip"
+    (mode === "clean" || mode === "listing") && currentUploadId
+      ? { uploadId: currentUploadId }
+      : "skip"
   );
 
   const images = useQuery(
@@ -54,7 +58,9 @@ export function IndexPage() {
 
   const researchJobs = useQuery(
     api.research.getResearchByUpload,
-    mode === "research" && currentUploadId ? { uploadId: currentUploadId } : "skip"
+    (mode === "research" || mode === "listing") && currentUploadId
+      ? { uploadId: currentUploadId }
+      : "skip"
   );
 
   const handleFilesAdded = useCallback((files: File[]) => {
@@ -119,7 +125,6 @@ export function IndexPage() {
       }
 
       if (mode === "clean") {
-        // Start edit jobs for all images in parallel
         await Promise.all(
           imageIds.map((imageId) =>
             startEdit({
@@ -129,7 +134,7 @@ export function IndexPage() {
             })
           )
         );
-      } else {
+      } else if (mode === "research") {
         await Promise.all(
           imageIds.map((imageId) =>
             startResearch({
@@ -138,6 +143,22 @@ export function IndexPage() {
             })
           )
         );
+      } else {
+        await Promise.all([
+          ...imageIds.map((imageId) =>
+            startEdit({
+              imageId,
+              cleanlinessLevel,
+              targetOutput,
+            })
+          ),
+          ...imageIds.map((imageId) =>
+            startResearch({
+              imageId,
+              condition,
+            })
+          ),
+        ]);
       }
     } catch (error) {
       console.error("Failed to start processing:", error);
@@ -177,11 +198,11 @@ export function IndexPage() {
         <div className="space-y-8 animate-fade-in">
           <div className="text-center space-y-3">
             <h2 className="text-3xl font-semibold tracking-tight">
-              Clean or Price Your Items
+              Clean, Research, and List Your Items
             </h2>
             <p className="text-[var(--color-text-muted)] max-w-xl mx-auto">
-              Upload photos to clean them or run product research with pricing
-              recommendations.
+              Upload photos to clean them, research pricing, and generate a
+              marketplace-ready listing.
             </p>
           </div>
 
@@ -199,7 +220,7 @@ export function IndexPage() {
                   <label className="text-sm font-medium text-[var(--color-text)]">
                     Workflow
                   </label>
-                  <div className="grid grid-cols-2 gap-2 mt-3">
+                  <div className="grid grid-cols-3 gap-2 mt-3">
                     <button
                       onClick={() => setMode("clean")}
                       className={cn(
@@ -222,6 +243,17 @@ export function IndexPage() {
                     >
                       Product Research
                     </button>
+                    <button
+                      onClick={() => setMode("listing")}
+                      className={cn(
+                        "px-4 py-3 rounded-xl border text-sm font-medium transition-all",
+                        mode === "listing"
+                          ? "bg-[var(--color-accent-muted)] border-[var(--color-accent)] text-[var(--color-accent)]"
+                          : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]"
+                      )}
+                    >
+                      Listing Workflow
+                    </button>
                   </div>
                 </div>
 
@@ -234,13 +266,45 @@ export function IndexPage() {
                     onStart={handleStartProcessing}
                     imageCount={uploadedImages.length}
                   />
-                ) : (
+                ) : mode === "research" ? (
                   <ResearchOptionsPanel
                     condition={condition}
                     setCondition={setCondition}
                     onStart={handleStartProcessing}
                     imageCount={uploadedImages.length}
                   />
+                ) : (
+                  <div className="space-y-4">
+                    <OptionsPanel
+                      cleanlinessLevel={cleanlinessLevel}
+                      setCleanlinessLevel={setCleanlinessLevel}
+                      targetOutput={targetOutput}
+                      setTargetOutput={setTargetOutput}
+                      onStart={handleStartProcessing}
+                      imageCount={uploadedImages.length}
+                      showStart={false}
+                    />
+                    <ResearchOptionsPanel
+                      condition={condition}
+                      setCondition={setCondition}
+                      onStart={handleStartProcessing}
+                      imageCount={uploadedImages.length}
+                      showStart={false}
+                    />
+                    <button
+                      onClick={handleStartProcessing}
+                      className={cn(
+                        "w-full py-4 px-6 rounded-xl font-semibold text-base transition-all duration-300",
+                        "bg-gradient-to-r from-[var(--color-accent)] to-cyan-500",
+                        "text-[var(--color-bg)] shadow-lg shadow-cyan-500/20",
+                        "hover:shadow-xl hover:shadow-cyan-500/30 hover:scale-[1.01]",
+                        "active:scale-[0.99]"
+                      )}
+                    >
+                      Start Listing Workflow {uploadedImages.length}{" "}
+                      {uploadedImages.length === 1 ? "Item" : "Items"}
+                    </button>
+                  </div>
                 )}
               </div>
             </>
@@ -257,7 +321,7 @@ export function IndexPage() {
               allComplete={allJobsComplete ?? false}
               onReset={handleReset}
             />
-          ) : (
+          ) : mode === "research" ? (
             <ResearchPanel
               researchJobs={researchJobs ?? []}
               images={images ?? []}
@@ -265,6 +329,25 @@ export function IndexPage() {
               allComplete={allResearchComplete ?? false}
               onReset={handleReset}
             />
+          ) : (
+            <div className="space-y-8">
+              <JobsPanel
+                jobs={jobs ?? []}
+                outputs={outputs ?? []}
+                images={images ?? []}
+                uploadedImages={uploadedImages}
+                allComplete={allJobsComplete ?? false}
+                onReset={handleReset}
+              />
+              <ResearchPanel
+                researchJobs={researchJobs ?? []}
+                images={images ?? []}
+                uploadedImages={uploadedImages}
+                allComplete={allResearchComplete ?? false}
+                onReset={handleReset}
+                showReset={false}
+              />
+            </div>
           )}
         </>
       )}
