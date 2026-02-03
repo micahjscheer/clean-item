@@ -134,26 +134,77 @@ export const listingSchema = z.object({
   recommended_price: numberValue,
 });
 
-const toObject = (value: unknown) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value;
+const defaultProduct = {
+  name: null,
+  brand: null,
+  model: null,
+  category: null,
+  variant: null,
+  confidence: null,
+  confidence_label: null,
+  evidence: null,
 };
 
-const parseWithSchema = <Schema extends z.ZodTypeAny>(
-  schema: Schema,
-  value: unknown
-) => schema.parse(toObject(value));
+const defaultPricing = {
+  currency: null,
+  new: {
+    average: null,
+    minimum: null,
+  },
+  used: {
+    low: null,
+    median: null,
+    high: null,
+  },
+  recommended: {
+    price: null,
+    rationale: null,
+  },
+  sources: null,
+};
+
+const defaultListing = {
+  title: null,
+  description: null,
+  reason_for_selling: null,
+  issues: null,
+  loved: null,
+  highlights: null,
+  condition: null,
+  recommended_price: null,
+};
+
+const defaultExtraction = {
+  item_name: null,
+  brand: null,
+  model: null,
+  category: null,
+  variant: null,
+  materials: null,
+  colors: null,
+  condition: null,
+  visible_wear: null,
+  issues: null,
+  missing_parts: null,
+  included_items: null,
+  markings: null,
+  serial_numbers: null,
+  accessories: null,
+  dimensions: null,
+  notes: null,
+};
+
+const safeParse = (schema: z.ZodTypeAny, fallback: unknown, value: unknown) =>
+  schema.catch(fallback).parse(value);
 
 export const parseProduct = (value: unknown) =>
-  parseWithSchema(productSchema, value);
+  safeParse(productSchema, defaultProduct, value);
 
 export const parsePricing = (value: unknown) =>
-  parseWithSchema(pricingSchema, value);
+  safeParse(pricingSchema, defaultPricing, value);
 
 export const parseListing = (value: unknown) =>
-  parseWithSchema(listingSchema, value);
+  safeParse(listingSchema, defaultListing, value);
 
 export const parseExtraction = (value: unknown) =>
-  parseWithSchema(extractionSchema, value);
+  safeParse(extractionSchema, defaultExtraction, value);

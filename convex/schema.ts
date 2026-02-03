@@ -1,5 +1,10 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  cleanlinessSchema,
+  conditionSchema,
+  targetOutputSchema,
+} from "./validators";
 
 export default defineSchema({
   uploads: defineTable({
@@ -31,16 +36,8 @@ export default defineSchema({
     error: v.optional(v.string()),
     modelId: v.string(),
     promptVersion: v.number(),
-    cleanlinessLevel: v.union(
-      v.literal("light"),
-      v.literal("standard"),
-      v.literal("deep")
-    ),
-    targetOutput: v.union(
-      v.literal("match"),
-      v.literal("2k"),
-      v.literal("4k")
-    ),
+    cleanlinessLevel: cleanlinessSchema,
+    targetOutput: targetOutputSchema,
     retryCount: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -65,13 +62,7 @@ export default defineSchema({
     ),
     progressPct: v.number(),
     error: v.optional(v.string()),
-    condition: v.union(
-      v.literal("new"),
-      v.literal("like_new"),
-      v.literal("good"),
-      v.literal("fair"),
-      v.literal("poor")
-    ),
+    condition: conditionSchema,
     extractModelId: v.string(),
     researchModelId: v.string(),
     extraction: v.optional(v.any()),
