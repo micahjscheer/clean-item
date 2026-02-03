@@ -6,7 +6,7 @@ import {
   ThumbsUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ItemCondition } from "@/routes/index";
+import type { ItemCondition } from "@/lib/workflowSchemas";
 
 interface ResearchOptionsPanelProps {
   condition: ItemCondition;

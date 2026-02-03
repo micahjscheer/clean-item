@@ -1,6 +1,7 @@
 import { Outlet } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
-import { SignedIn, UserButton } from "@clerk/clerk-react";
+import { SignedIn } from "@clerk/clerk-react";
+import { ClerkUserButton } from "@/components/auth/ClerkUserButton";
 
 export function RootLayout() {
   return (
@@ -21,14 +22,7 @@ export function RootLayout() {
               Gemini 3 Pro Vision + OpenAI Research
             </span>
             <SignedIn>
-              <UserButton
-                appearance={{
-                  elements: {
-                    avatarBox:
-                      "w-8 h-8 border border-[var(--color-border)]",
-                  },
-                }}
-              />
+              <ClerkUserButton />
             </SignedIn>
           </div>
         </div>

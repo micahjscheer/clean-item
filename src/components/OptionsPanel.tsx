@@ -1,6 +1,9 @@
 import { Sparkles, Zap, Flame, Monitor, Maximize, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CleanlinessLevel, TargetOutput } from "@/routes/index";
+import type {
+  CleanlinessLevel,
+  TargetOutput,
+} from "@/lib/workflowSchemas";
 
 interface OptionsPanelProps {
   cleanlinessLevel: CleanlinessLevel;

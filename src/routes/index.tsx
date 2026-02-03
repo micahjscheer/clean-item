@@ -9,12 +9,14 @@ import { ResearchOptionsPanel } from "@/components/ResearchOptionsPanel";
 import { ResearchPanel } from "@/components/ResearchPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, generateId } from "@/lib/utils";
+import {
+  cleanlinessSchema,
+  conditionSchema,
+  targetOutputSchema,
+  workflowSchema,
+} from "@/lib/workflowSchemas";
+import * as R from "remeda";
 import type { Id } from "../../convex/_generated/dataModel";
-
-export type CleanlinessLevel = "light" | "standard" | "deep";
-export type TargetOutput = "match" | "2k" | "4k";
-export type ProcessingMode = "clean" | "research" | "listing";
-export type ItemCondition = "new" | "like_new" | "good" | "fair" | "poor";
 
 export interface UploadedImage {
   file: File;
@@ -25,11 +27,17 @@ export interface UploadedImage {
 export function IndexPage() {
   const [sessionId] = useState(() => generateId());
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
-  const [currentUploadId, setCurrentUploadId] = useState<Id<"uploads"> | null>(null);
-  const [cleanlinessLevel, setCleanlinessLevel] = useState<CleanlinessLevel>("standard");
-  const [targetOutput, setTargetOutput] = useState<TargetOutput>("match");
-  const [mode, setMode] = useState<ProcessingMode>("listing");
-  const [condition, setCondition] = useState<ItemCondition>("good");
+  const [currentUploadId, setCurrentUploadId] = useState<Id<"uploads"> | null>(
+    null
+  );
+  const [cleanlinessLevel, setCleanlinessLevel] = useState(
+    cleanlinessSchema.parse("standard")
+  );
+  const [targetOutput, setTargetOutput] = useState(
+    targetOutputSchema.parse("match")
+  );
+  const [mode, setMode] = useState(workflowSchema.parse("listing"));
+  const [condition, setCondition] = useState(conditionSchema.parse("good"));
   const [isProcessing, setIsProcessing] = useState(false);
 
   const createUpload = useMutation(api.uploads.createUpload);
@@ -37,6 +45,9 @@ export function IndexPage() {
   const generateUploadUrl = useMutation(api.uploads.generateUploadUrl);
   const startEdit = useMutation(api.jobs.startEdit);
   const startResearch = useMutation(api.research.startResearch);
+  const startListingWorkflow = useMutation(
+    api.workflows.startListingWorkflow
+  );
   
   const jobs = useQuery(
     api.jobs.getJobsByUpload,
@@ -93,37 +104,29 @@ export function IndexPage() {
       });
       setCurrentUploadId(uploadId);
 
-      // Upload each image and create jobs
-      const imageIds: Id<"images">[] = [];
-      
-      for (const img of uploadedImages) {
-        // Get upload URL
-        const uploadUrl = await generateUploadUrl();
-        
-        // Upload file to Convex storage
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": img.file.type },
-          body: img.file,
-        });
-        
-        const { storageId } = await response.json();
+      const imageIds = await Promise.all(
+        uploadedImages.map(async (img) => {
+          const uploadUrl = await generateUploadUrl();
 
-        // Get image dimensions
-        const dimensions = await getImageDimensions(img.file);
-        
-        // Create image record
-        const imageId = await addImage({
-          uploadId,
-          storageId,
-          width: dimensions.width,
-          height: dimensions.height,
-          mimeType: img.file.type,
-          fileName: img.file.name,
-        });
-        
-        imageIds.push(imageId);
-      }
+          const response = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": img.file.type },
+            body: img.file,
+          });
+
+          const { storageId } = await response.json();
+          const dimensions = await getImageDimensions(img.file);
+
+          return addImage({
+            uploadId,
+            storageId,
+            width: dimensions.width,
+            height: dimensions.height,
+            mimeType: img.file.type,
+            fileName: img.file.name,
+          });
+        })
+      );
 
       if (mode === "clean") {
         await Promise.all(
@@ -145,21 +148,12 @@ export function IndexPage() {
           )
         );
       } else {
-        await Promise.all([
-          ...imageIds.map((imageId) =>
-            startEdit({
-              imageId,
-              cleanlinessLevel,
-              targetOutput,
-            })
-          ),
-          ...imageIds.map((imageId) =>
-            startResearch({
-              imageId,
-              condition,
-            })
-          ),
-        ]);
+        await startListingWorkflow({
+          imageIds,
+          cleanlinessLevel,
+          targetOutput,
+          condition,
+        });
       }
     } catch (error) {
       console.error("Failed to start processing:", error);
@@ -173,6 +167,7 @@ export function IndexPage() {
     addImage,
     startEdit,
     startResearch,
+    startListingWorkflow,
     cleanlinessLevel,
     targetOutput,
     mode,
@@ -186,11 +181,18 @@ export function IndexPage() {
     setIsProcessing(false);
   }, [uploadedImages]);
 
-  const allJobsComplete = jobs?.every(
-    (job) => job.status === "succeeded" || job.status === "failed"
+  const jobCounts = R.countBy(jobs ?? [], (job) => job.status);
+  const researchCounts = R.countBy(researchJobs ?? [], (job) => job.status);
+  const jobCompleted = jobCounts.succeeded ?? 0;
+  const jobTotal = jobs ? jobs.length : 0;
+  const researchCompleted = researchCounts.succeeded ?? 0;
+  const researchTotal = researchJobs ? researchJobs.length : 0;
+
+  const allJobsComplete = R.every(jobs ?? [], (job) =>
+    ["succeeded", "failed"].includes(job.status)
   );
-  const allResearchComplete = researchJobs?.every(
-    (job) => job.status === "succeeded" || job.status === "failed"
+  const allResearchComplete = R.every(researchJobs ?? [], (job) =>
+    ["succeeded", "failed"].includes(job.status)
   );
 
   return (
@@ -218,9 +220,12 @@ export function IndexPage() {
               
               <Tabs
                 value={mode}
-                onValueChange={(value) =>
-                  setMode(value as ProcessingMode)
-                }
+                onValueChange={(value) => {
+                  const parsed = workflowSchema.safeParse(value);
+                  if (parsed.success) {
+                    setMode(parsed.data);
+                  }
+                }}
                 className="space-y-4"
               >
                 <div className="p-4 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)] space-y-3">
@@ -318,16 +323,8 @@ export function IndexPage() {
                     Listing Workflow
                   </h2>
                   <p className="text-sm text-[var(--color-text-muted)] mt-1">
-                    Cleaning:{" "}
-                    {jobs
-                      ? jobs.filter((job) => job.status === "succeeded").length
-                      : 0}
-                    /{jobs ? jobs.length : 0} complete • Research:{" "}
-                    {researchJobs
-                      ? researchJobs.filter((job) => job.status === "succeeded")
-                          .length
-                      : 0}
-                    /{researchJobs ? researchJobs.length : 0} complete
+                    Cleaning: {jobCompleted}/{jobTotal} complete • Research:{" "}
+                    {researchCompleted}/{researchTotal} complete
                   </p>
                 </div>
                 <button
@@ -371,7 +368,7 @@ export function IndexPage() {
   );
 }
 
-async function getImageDimensions(file: File): Promise<{ width: number; height: number }> {
+async function getImageDimensions(file: File) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {

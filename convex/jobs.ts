@@ -1,22 +1,21 @@
-import { mutation, query, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import {
+  mutation,
+  query,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { cleanlinessSchema, targetOutputSchema } from "./validators";
 
 const MODEL_ID = "gemini-2.0-flash-exp";
 
 export const startEdit = mutation({
   args: {
     imageId: v.id("images"),
-    cleanlinessLevel: v.union(
-      v.literal("light"),
-      v.literal("standard"),
-      v.literal("deep")
-    ),
-    targetOutput: v.union(
-      v.literal("match"),
-      v.literal("2k"),
-      v.literal("4k")
-    ),
+    cleanlinessLevel: cleanlinessSchema,
+    targetOutput: targetOutputSchema,
   },
   handler: async (ctx, args) => {
     const jobId = await ctx.db.insert("jobs", {
@@ -32,7 +31,32 @@ export const startEdit = mutation({
       updatedAt: Date.now(),
     });
 
-    // Schedule the action to process this job
+    await ctx.scheduler.runAfter(0, internal.jobs.processJob, { jobId });
+
+    return jobId;
+  },
+});
+
+export const queueEdit = internalMutation({
+  args: {
+    imageId: v.id("images"),
+    cleanlinessLevel: cleanlinessSchema,
+    targetOutput: targetOutputSchema,
+  },
+  handler: async (ctx, args) => {
+    const jobId = await ctx.db.insert("jobs", {
+      imageId: args.imageId,
+      status: "queued",
+      progressPct: 0,
+      modelId: MODEL_ID,
+      promptVersion: 1,
+      cleanlinessLevel: args.cleanlinessLevel,
+      targetOutput: args.targetOutput,
+      retryCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
     await ctx.scheduler.runAfter(0, internal.jobs.processJob, { jobId });
 
     return jobId;
@@ -77,13 +101,13 @@ export const updateJobProgress = internalMutation({
     error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const updates: Record<string, unknown> = {
+    const updates = {
       progressPct: args.progressPct,
       updatedAt: Date.now(),
+      ...(args.status ? { status: args.status } : {}),
+      ...(args.error !== undefined ? { error: args.error } : {}),
     };
-    if (args.status) updates.status = args.status;
-    if (args.error !== undefined) updates.error = args.error;
-    
+
     await ctx.db.patch(args.jobId, updates);
   },
 });
@@ -299,7 +323,7 @@ function buildPrompt(
   promptVersion: number,
   cleanlinessLevel: string,
   targetOutput: string
-): string {
+) {
   const baseParts = [
     "Edit this real photo. Keep the scene identical: camera position, framing, perspective, background, shadows, reflections, and every object's position.",
     "Do not add, remove, resize, or reshape anything. Do not change colours, materials, branding, or labels.",
@@ -338,7 +362,7 @@ function buildPrompt(
   return baseParts.join(" ");
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+function arrayBufferToBase64(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   for (let i = 0; i < bytes.byteLength; i++) {
@@ -347,7 +371,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
+function base64ToArrayBuffer(base64: string) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {

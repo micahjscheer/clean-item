@@ -9,6 +9,13 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  parseExtraction,
+  parseListing,
+  parsePricing,
+  parseProduct,
+} from "@/lib/researchSchemas";
+import * as R from "remeda";
 import type { UploadedImage } from "@/routes/index";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 
@@ -27,7 +34,7 @@ interface ResearchPanelProps {
   title?: string;
 }
 
-const conditionLabels: Record<string, string> = {
+const conditionLabels = {
   new: "New",
   like_new: "Like New",
   good: "Good",
@@ -49,18 +56,11 @@ export function ResearchPanel({
     null
   );
 
-  const succeededCount = researchJobs.filter(
-    (job) => job.status === "succeeded"
-  ).length;
-  const failedCount = researchJobs.filter(
-    (job) => job.status === "failed"
-  ).length;
-  const runningCount = researchJobs.filter(
-    (job) => job.status === "running"
-  ).length;
-  const queuedCount = researchJobs.filter(
-    (job) => job.status === "queued"
-  ).length;
+  const statusCounts = R.countBy(researchJobs, (job) => job.status);
+  const succeededCount = statusCounts.succeeded ?? 0;
+  const failedCount = statusCounts.failed ?? 0;
+  const runningCount = statusCounts.running ?? 0;
+  const queuedCount = statusCounts.queued ?? 0;
 
   const imageMap = useMemo(() => {
     const map = new Map<string, ImageWithUrl>();
@@ -90,6 +90,9 @@ export function ResearchPanel({
   const selectedPreview = selectedImage
     ? uploadedImages.find((img) => img.file.name === selectedImage.fileName)
         ?.preview
+    : null;
+  const selectedData = selectedResearch
+    ? getResearchData(selectedResearch)
     : null;
 
   return (
@@ -146,16 +149,10 @@ export function ResearchPanel({
             (u) => image && u.file.name === image.fileName
           );
 
-          const pricing = job.pricing as {
-            currency?: string | null;
-            recommended?: { price?: number | null };
-          } | null;
-          const listing = job.listing as {
-            recommended_price?: number | null;
-          } | null;
+          const data = getResearchData(job);
           const recommended =
-            listing?.recommended_price ?? pricing?.recommended?.price ?? null;
-          const currency = pricing?.currency ?? "USD";
+            data.listing.recommended_price ?? data.pricing.recommended.price;
+          const currency = data.pricing.currency ?? "USD";
 
           const output = outputMap?.get(job.imageId);
           const previewUrl =
@@ -283,7 +280,7 @@ export function ResearchPanel({
         </div>
       )}
 
-      {selectedImageId && selectedResearch && selectedImage && (
+      {selectedImageId && selectedResearch && selectedImage && selectedData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
           <div className="relative w-full max-w-6xl max-h-[90vh] m-4 rounded-2xl overflow-hidden bg-[var(--color-bg-elevated)] border border-[var(--color-border)]">
             <div className="flex items-center justify-between p-4 border-b border-[var(--color-border)]">
@@ -296,15 +293,15 @@ export function ResearchPanel({
                 </button>
                 <div>
                   <h3 className="font-medium">
-                    {getProductName(selectedResearch)}
+                    {getProductName(selectedData)}
                   </h3>
                   <p className="text-xs text-[var(--color-text-muted)]">
                     Seller condition:{" "}
                     {conditionLabels[selectedResearch.condition] ??
                       selectedResearch.condition}
-                    {getExtractionCondition(selectedResearch)
+                    {getExtractionCondition(selectedData)
                       ? ` | AI condition: ${getExtractionCondition(
-                          selectedResearch
+                          selectedData
                         )}`
                       : ""}
                   </p>
@@ -328,11 +325,11 @@ export function ResearchPanel({
                 </div>
 
                 <div className="space-y-5">
-                  {renderIdentification(selectedResearch)}
-                  {renderListing(selectedResearch)}
-                  {renderPricing(selectedResearch)}
-                  {renderExtraction(selectedResearch)}
-                  {renderSources(selectedResearch)}
+                  {renderIdentification(selectedData)}
+                  {renderListing(selectedData)}
+                  {renderPricing(selectedData)}
+                  {renderExtraction(selectedData)}
+                  {renderSources(selectedData)}
                 </div>
               </div>
             </div>
@@ -343,18 +340,15 @@ export function ResearchPanel({
   );
 }
 
-function renderIdentification(research: ResearchJob) {
-  const product = (research.product ?? {}) as {
-    name?: string | null;
-    brand?: string | null;
-    model?: string | null;
-    category?: string | null;
-    variant?: string | null;
-    confidence?: number | null;
-    confidence_label?: string | null;
-    evidence?: string[] | null;
-  };
+const getResearchData = (research: ResearchJob) => ({
+  product: parseProduct(research.product),
+  pricing: parsePricing(research.pricing),
+  listing: parseListing(research.listing),
+  extraction: parseExtraction(research.extraction),
+});
 
+function renderIdentification(data: ReturnType<typeof getResearchData>) {
+  const { product } = data;
   const confidencePercent =
     typeof product.confidence === "number"
       ? Math.round(product.confidence * 100)
@@ -394,18 +388,8 @@ function renderIdentification(research: ResearchJob) {
   );
 }
 
-function renderPricing(research: ResearchJob) {
-  const pricing = (research.pricing ?? {}) as {
-    currency?: string | null;
-    new?: { average?: number | null; minimum?: number | null } | null;
-    used?: {
-      low?: number | null;
-      median?: number | null;
-      high?: number | null;
-    } | null;
-    recommended?: { price?: number | null; rationale?: string | null } | null;
-  };
-
+function renderPricing(data: ReturnType<typeof getResearchData>) {
+  const { pricing } = data;
   const currency = pricing.currency ?? "USD";
 
   return (
@@ -439,7 +423,7 @@ function renderPricing(research: ResearchJob) {
           value={formatCurrency(pricing.recommended?.price ?? null, currency)}
         />
       </div>
-      {pricing.recommended?.rationale && (
+      {pricing.recommended.rationale && (
         <p className="text-xs text-[var(--color-text-muted)]">
           {pricing.recommended.rationale}
         </p>
@@ -448,20 +432,8 @@ function renderPricing(research: ResearchJob) {
   );
 }
 
-function renderListing(research: ResearchJob) {
-  const listing = (research.listing ?? {}) as {
-    title?: string | null;
-    description?: string | null;
-    reason_for_selling?: string | null;
-    issues?: string[] | null;
-    loved?: string[] | null;
-    highlights?: string[] | null;
-    condition?: string | null;
-    recommended_price?: number | null;
-  };
-  const pricing = (research.pricing ?? {}) as {
-    currency?: string | null;
-  };
+function renderListing(data: ReturnType<typeof getResearchData>) {
+  const { listing, pricing } = data;
   const currency = pricing.currency ?? "USD";
 
   const hasListing =
@@ -517,20 +489,8 @@ function renderListing(research: ResearchJob) {
   );
 }
 
-function renderExtraction(research: ResearchJob) {
-  const extraction = (research.extraction ?? {}) as {
-    materials?: string[] | null;
-    colors?: string[] | null;
-    condition?: string | null;
-    visible_wear?: string[] | null;
-    issues?: string[] | null;
-    missing_parts?: string[] | null;
-    included_items?: string[] | null;
-    markings?: string[] | null;
-    serial_numbers?: string[] | null;
-    accessories?: string[] | null;
-    notes?: string | null;
-  };
+function renderExtraction(data: ReturnType<typeof getResearchData>) {
+  const { extraction } = data;
 
   const hasDetails =
     (extraction.materials && extraction.materials.length > 0) ||
@@ -591,17 +551,8 @@ function renderExtraction(research: ResearchJob) {
   );
 }
 
-function renderSources(research: ResearchJob) {
-  const pricing = (research.pricing ?? {}) as {
-    sources?: {
-      title?: string | null;
-      url?: string | null;
-      price?: number | null;
-      condition?: string | null;
-      type?: string | null;
-    }[] | null;
-    currency?: string | null;
-  };
+function renderSources(data: ReturnType<typeof getResearchData>) {
+  const { pricing } = data;
 
   if (!pricing.sources || pricing.sources.length === 0) return null;
 
@@ -673,15 +624,10 @@ function formatList(values?: string[] | null) {
   return values.join(", ");
 }
 
-function getProductName(research: ResearchJob) {
-  const listing = (research.listing ?? {}) as { title?: string | null };
-  const product = (research.product ?? {}) as { name?: string | null };
-  return listing.title ?? product.name ?? "Product Research";
+function getProductName(data: ReturnType<typeof getResearchData>) {
+  return data.listing.title ?? data.product.name ?? "Product Research";
 }
 
-function getExtractionCondition(research: ResearchJob) {
-  const extraction = (research.extraction ?? {}) as {
-    condition?: string | null;
-  };
-  return extraction.condition ?? null;
+function getExtractionCondition(data: ReturnType<typeof getResearchData>) {
+  return data.extraction.condition ?? null;
 }

@@ -13,6 +13,7 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { cn, formatDimensions } from "@/lib/utils";
 import { BeforeAfterViewer } from "./BeforeAfterViewer";
+import * as R from "remeda";
 import type { UploadedImage } from "@/routes/index";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 
@@ -44,10 +45,11 @@ export function JobsPanel({
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedImageId, setSelectedImageId] = useState<Id<"images"> | null>(null);
 
-  const succeededCount = jobs.filter((j) => j.status === "succeeded").length;
-  const failedCount = jobs.filter((j) => j.status === "failed").length;
-  const runningCount = jobs.filter((j) => j.status === "running").length;
-  const queuedCount = jobs.filter((j) => j.status === "queued").length;
+  const statusCounts = R.countBy(jobs, (job) => job.status);
+  const succeededCount = statusCounts.succeeded ?? 0;
+  const failedCount = statusCounts.failed ?? 0;
+  const runningCount = statusCounts.running ?? 0;
+  const queuedCount = statusCounts.queued ?? 0;
 
   const imageMap = useMemo(() => {
     const map = new Map<string, ImageWithUrl>();

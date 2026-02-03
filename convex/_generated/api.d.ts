@@ -17,6 +17,7 @@ import type * as jobs from "../jobs.js";
 import type * as outputs from "../outputs.js";
 import type * as research from "../research.js";
 import type * as uploads from "../uploads.js";
+import type * as workflows from "../workflows.js";
 
 /**
  * A utility for referencing Convex functions in your app's API.
@@ -31,6 +32,7 @@ declare const fullApi: ApiFromModules<{
   outputs: typeof outputs;
   research: typeof research;
   uploads: typeof uploads;
+  workflows: typeof workflows;
 }>;
 export declare const api: FilterApi<
   typeof fullApi,

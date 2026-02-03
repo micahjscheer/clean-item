@@ -21,6 +21,8 @@ AI-powered tool to clean photos by removing dust, dirt, and smudges while preser
 - **Backend**: Convex (database, file storage, actions)
 - **AI**: Google Gemini (vision + image generation/editing), OpenAI (research)
 - **Auth**: Clerk
+- **Validation**: Zod
+- **Utilities**: Remeda
 
 ## Setup
 
@@ -97,6 +99,8 @@ clean-item/
 │   ├── uploads.ts         # File upload mutations/queries
 │   ├── jobs.ts            # Job processing + Gemini API integration
 │   ├── research.ts        # Product research + OpenAI pricing analysis
+│   ├── workflows.ts       # Listing workflow orchestration
+│   ├── validators.ts      # Shared Convex validators
 │   └── outputs.ts         # Output queries
 ├── src/
 │   ├── components/        # React components
@@ -106,6 +110,9 @@ clean-item/
 │   │   ├── JobsPanel.tsx
 │   │   ├── ResearchOptionsPanel.tsx
 │   │   ├── ResearchPanel.tsx
+│   │   ├── auth/ClerkSignIn.tsx
+│   │   ├── auth/ClerkUserButton.tsx
+│   │   └── ui/tabs.tsx
 │   │   └── BeforeAfterViewer.tsx
 │   ├── routes/            # TanStack Router pages
 │   ├── lib/utils.ts       # Utility functions

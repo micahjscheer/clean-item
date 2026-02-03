@@ -4,19 +4,21 @@ import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
-import {
-  ClerkProvider,
-  SignIn,
-  SignedIn,
-  SignedOut,
-  useAuth,
-} from "@clerk/clerk-react";
+import { ClerkProvider, SignedIn, SignedOut, useAuth } from "@clerk/clerk-react";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";
+import { ClerkSignIn } from "@/components/auth/ClerkSignIn";
+import { z } from "zod";
 
-const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
-const clerkPublishableKey = import.meta.env
-  .VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+const envSchema = z
+  .object({
+    VITE_CONVEX_URL: z.string().min(1).optional(),
+    VITE_CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
+  })
+  .passthrough();
+const env = envSchema.parse(import.meta.env);
+const convexUrl = env.VITE_CONVEX_URL;
+const clerkPublishableKey = env.VITE_CLERK_PUBLISHABLE_KEY;
 const queryClient = new QueryClient();
 const router = createRouter({ routeTree });
 
@@ -120,27 +122,7 @@ function App() {
         </ConvexProviderWithClerk>
       </SignedIn>
       <SignedOut>
-        <div className="min-h-screen flex items-center justify-center p-6">
-          <SignIn
-            appearance={{
-              elements: {
-                card: "bg-[var(--color-bg-elevated)] border border-[var(--color-border)] shadow-xl",
-                headerTitle: "text-[var(--color-text)]",
-                headerSubtitle: "text-[var(--color-text-muted)]",
-                socialButtonsBlockButton:
-                  "border border-[var(--color-border)] hover:bg-[var(--color-bg-hover)]",
-                formButtonPrimary:
-                  "bg-gradient-to-r from-[var(--color-accent)] to-cyan-500 text-[var(--color-bg)]",
-                footerActionText: "text-[var(--color-text-muted)]",
-                footerActionLink:
-                  "text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]",
-                formFieldInput:
-                  "bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text)]",
-              },
-            }}
-            routing="hash"
-          />
-        </div>
+        <ClerkSignIn />
       </SignedOut>
     </ClerkProvider>
   );

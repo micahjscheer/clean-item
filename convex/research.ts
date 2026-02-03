@@ -7,21 +7,250 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { z } from "zod";
+import * as R from "remeda";
+import { conditionSchema } from "./validators";
 
 const VISION_MODEL_ID =
   process.env.GEMINI_VISION_MODEL_ID ?? "gemini-3.0-pro-vision";
 const OPENAI_RESEARCH_MODEL =
   process.env.OPENAI_RESEARCH_MODEL ?? "gpt-4.1";
 
-const conditionSchema = v.union(
-  v.literal("new"),
-  v.literal("like_new"),
-  v.literal("good"),
-  v.literal("fair"),
-  v.literal("poor")
-);
+const conditionEnum = z.enum(["new", "like_new", "good", "fair", "poor"]);
+
+const stringValue = z.preprocess((value) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}, z.string().nullable());
+
+const parseNumber = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[^0-9.]/g, "");
+    if (!cleaned) return null;
+    const parsed = Number.parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const numberValue = z.preprocess((value) => parseNumber(value), z.number().nullable());
+
+const confidenceValue = z.preprocess((value) => {
+  const parsed = parseNumber(value);
+  if (parsed === null) return null;
+  return parsed > 1 ? parsed / 100 : parsed;
+}, z.number().nullable());
+
+const stringArrayValue = z.preprocess((value) => {
+  if (!Array.isArray(value)) return null;
+  const cleaned = R.pipe(
+    value,
+    R.filter((item) => typeof item === "string"),
+    R.map((item) => item.trim()),
+    R.filter((item) => item.length > 0)
+  );
+  return cleaned.length ? cleaned : null;
+}, z.array(z.string()).nullable());
+
+const dimensionsSchema = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value;
+}, z.object({
+  length: numberValue,
+  width: numberValue,
+  height: numberValue,
+  unit: z.enum(["cm", "in"]).nullable(),
+}).nullable());
+
+const extractionSchema = z.object({
+  item_name: stringValue,
+  brand: stringValue,
+  model: stringValue,
+  category: stringValue,
+  variant: stringValue,
+  materials: stringArrayValue,
+  colors: stringArrayValue,
+  condition: stringValue,
+  visible_wear: stringArrayValue,
+  issues: stringArrayValue,
+  missing_parts: stringArrayValue,
+  included_items: stringArrayValue,
+  markings: stringArrayValue,
+  serial_numbers: stringArrayValue,
+  accessories: stringArrayValue,
+  dimensions: dimensionsSchema,
+  notes: stringValue,
+});
+
+const productSchema = z.object({
+  name: stringValue,
+  brand: stringValue,
+  model: stringValue,
+  category: stringValue,
+  variant: stringValue,
+  confidence: confidenceValue,
+  confidence_label: stringValue,
+  evidence: stringArrayValue,
+});
+
+const sourceSchema = z.object({
+  title: stringValue,
+  url: stringValue,
+  price: numberValue,
+  condition: stringValue,
+  type: stringValue,
+});
+
+const objectValue = (schema: z.ZodTypeAny) =>
+  z.preprocess((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return {};
+    }
+    return value;
+  }, schema);
+
+const pricingSchema = z.object({
+  currency: stringValue,
+  new: objectValue(
+    z.object({
+      average: numberValue,
+      minimum: numberValue,
+    })
+  ),
+  used: objectValue(
+    z.object({
+      low: numberValue,
+      median: numberValue,
+      high: numberValue,
+    })
+  ),
+  recommended: objectValue(
+    z.object({
+      price: numberValue,
+      rationale: stringValue,
+    })
+  ),
+  sources: z.preprocess((value) => {
+    if (!Array.isArray(value)) return null;
+    return value;
+  }, z.array(sourceSchema).nullable()),
+});
+
+const listingSchema = z.object({
+  title: stringValue,
+  description: stringValue,
+  reason_for_selling: stringValue,
+  issues: stringArrayValue,
+  loved: stringArrayValue,
+  highlights: stringArrayValue,
+  condition: stringValue,
+  recommended_price: numberValue,
+});
+
+const researchSchema = z.object({
+  product: productSchema,
+  pricing: pricingSchema,
+  listing: listingSchema,
+});
+
+const geminiResponseSchema = z
+  .object({
+    candidates: z
+      .array(
+        z.object({
+          content: z
+            .object({
+              parts: z
+                .array(
+                  z.object({
+                    text: z.string().optional(),
+                  })
+                )
+                .optional(),
+            })
+            .optional(),
+        })
+      )
+      .optional(),
+  })
+  .passthrough();
+
+const openAiResponseSchema = z
+  .object({
+    output_text: z.string().optional(),
+    output: z
+      .array(
+        z.object({
+          type: z.string().optional(),
+          content: z
+            .array(
+              z.object({
+                type: z.string().optional(),
+                text: z.string().optional(),
+              })
+            )
+            .optional(),
+        })
+      )
+      .optional(),
+    choices: z
+      .array(
+        z.object({
+          message: z
+            .object({
+              content: z.string().optional(),
+            })
+            .optional(),
+        })
+      )
+      .optional(),
+  })
+  .passthrough();
+
+const geminiRequestSchema = z.object({
+  apiKey: z.string(),
+  modelId: z.string(),
+  imageBase64: z.string(),
+  mimeType: z.string(),
+});
+
+const openAiRequestSchema = z.object({
+  apiKey: z.string(),
+  model: z.string(),
+  extraction: extractionSchema,
+  condition: conditionEnum,
+});
 
 export const startResearch = mutation({
+  args: {
+    imageId: v.id("images"),
+    condition: conditionSchema,
+  },
+  handler: async (ctx, args) => {
+    const researchId = await ctx.db.insert("productResearch", {
+      imageId: args.imageId,
+      status: "queued",
+      progressPct: 0,
+      condition: args.condition,
+      extractModelId: VISION_MODEL_ID,
+      researchModelId: OPENAI_RESEARCH_MODEL,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    await ctx.scheduler.runAfter(0, internal.research.processResearch, {
+      researchId,
+    });
+
+    return researchId;
+  },
+});
+
+export const queueResearch = internalMutation({
   args: {
     imageId: v.id("images"),
     condition: conditionSchema,
@@ -102,17 +331,18 @@ export const updateResearch = internalMutation({
     listing: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const updates: Record<string, unknown> = {
+    const updates = {
       updatedAt: Date.now(),
+      ...(args.progressPct !== undefined
+        ? { progressPct: args.progressPct }
+        : {}),
+      ...(args.status ? { status: args.status } : {}),
+      ...(args.error !== undefined ? { error: args.error } : {}),
+      ...(args.extraction !== undefined ? { extraction: args.extraction } : {}),
+      ...(args.product !== undefined ? { product: args.product } : {}),
+      ...(args.pricing !== undefined ? { pricing: args.pricing } : {}),
+      ...(args.listing !== undefined ? { listing: args.listing } : {}),
     };
-
-    if (args.progressPct !== undefined) updates.progressPct = args.progressPct;
-    if (args.status) updates.status = args.status;
-    if (args.error !== undefined) updates.error = args.error;
-    if (args.extraction !== undefined) updates.extraction = args.extraction;
-    if (args.product !== undefined) updates.product = args.product;
-    if (args.pricing !== undefined) updates.pricing = args.pricing;
-    if (args.listing !== undefined) updates.listing = args.listing;
 
     await ctx.db.patch(args.researchId, updates);
   },
@@ -196,25 +426,21 @@ export const processResearch = internalAction({
         condition: research.condition,
       });
 
-      const normalizedProduct = normalizeProduct(researchResult.product);
-      const normalizedPricing = normalizePricing(
-        researchResult.pricing,
-        research.condition
-      );
-      const normalizedListing = normalizeListing(
-        researchResult.listing,
-        normalizedProduct,
-        normalizedPricing,
-        research.condition,
-        extraction
-      );
+      const pricing = finalizePricing(researchResult.pricing, research.condition);
+      const listing = finalizeListing({
+        listing: researchResult.listing,
+        product: researchResult.product,
+        pricing,
+        condition: research.condition,
+        extraction,
+      });
 
       await ctx.runMutation(internal.research.updateResearch, {
         researchId: args.researchId,
         progressPct: 90,
-        product: normalizedProduct,
-        pricing: normalizedPricing,
-        listing: normalizedListing,
+        product: researchResult.product,
+        pricing,
+        listing,
       });
 
       await ctx.runMutation(internal.research.updateResearch, {
@@ -234,17 +460,11 @@ export const processResearch = internalAction({
   },
 });
 
-async function callGeminiExtraction({
-  apiKey,
-  modelId,
-  imageBase64,
-  mimeType,
-}: {
-  apiKey: string;
-  modelId: string;
-  imageBase64: string;
-  mimeType: string;
-}) {
+const callGeminiExtraction = async (
+  params: z.infer<typeof geminiRequestSchema>
+) => {
+  const { apiKey, modelId, imageBase64, mimeType } =
+    geminiRequestSchema.parse(params);
   const prompt = buildGeminiPrompt();
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
@@ -278,33 +498,27 @@ async function callGeminiExtraction({
     throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
   }
 
-  const result = await response.json();
+  const result = geminiResponseSchema.parse(await response.json());
   const parts = result.candidates?.[0]?.content?.parts ?? [];
-  const text = parts
-    .map((part: { text?: string }) => part.text)
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+  const text = R.pipe(
+    parts,
+    R.map((part) => part.text),
+    R.filter((value) => typeof value === "string" && value.trim().length > 0),
+    (items) => items.join("\n").trim()
+  );
 
-  const parsed = safeJsonParse(text);
-  if (!parsed) {
-    throw new Error("Gemini returned invalid extraction JSON");
-  }
+  return parseJsonWithSchema(
+    extractionSchema,
+    text,
+    "Gemini returned invalid extraction JSON"
+  );
+};
 
-  return parsed;
-}
-
-async function callOpenAiResearch({
-  apiKey,
-  model,
-  extraction,
-  condition,
-}: {
-  apiKey: string;
-  model: string;
-  extraction: unknown;
-  condition: string;
-}) {
+const callOpenAiResearch = async (
+  params: z.infer<typeof openAiRequestSchema>
+) => {
+  const { apiKey, model, extraction, condition } =
+    openAiRequestSchema.parse(params);
   const prompt = buildOpenAiPrompt(extraction, condition);
   const basePayload = {
     model,
@@ -326,35 +540,30 @@ async function callOpenAiResearch({
     },
   };
 
-  let result: any;
-  try {
-    result = await requestOpenAi(apiKey, {
-      ...basePayload,
-      tools: [{ type: "web_search" }],
-    });
-  } catch (error) {
+  const result = await requestOpenAi(apiKey, {
+    ...basePayload,
+    tools: [{ type: "web_search" }],
+  }).catch((error) => {
     if (shouldFallbackToNoTools(error)) {
-      result = await requestOpenAi(apiKey, basePayload);
-    } else {
-      throw error;
+      return requestOpenAi(apiKey, basePayload);
     }
-  }
+    throw error;
+  });
+
   const outputText = extractResponseText(result);
-  const parsed = safeJsonParse(outputText);
-
-  if (!parsed) {
-    throw new Error("OpenAI returned invalid research JSON");
-  }
-
-  return parsed as { product: unknown; pricing: unknown; listing: unknown };
-}
+  return parseJsonWithSchema(
+    researchSchema,
+    outputText,
+    "OpenAI returned invalid research JSON"
+  );
+};
 
 function buildGeminiPrompt() {
   return [
     "You are a careful product inspector.",
     "From the image, extract the product details as JSON only.",
     "Include condition and any visible issues or missing parts.",
-    "Condition should be one of: new, like new, good, fair, poor.",
+    "Condition should be one of: new, like_new, good, fair, poor.",
     "Use the schema below and return null when unknown.",
     "Do not include any extra commentary or markdown.",
     "",
@@ -524,18 +733,32 @@ function buildOpenAiSchema() {
   };
 }
 
-function extractResponseText(result: any): string {
-  if (typeof result?.output_text === "string") {
+const parseJsonWithSchema = (
+  schema: z.ZodTypeAny,
+  text: string,
+  errorMessage: string
+) => {
+  const parsed = safeJsonParse(text);
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(errorMessage);
+  }
+  return result.data;
+};
+
+const extractResponseText = (result: z.infer<typeof openAiResponseSchema>) => {
+  if (result.output_text) {
     return result.output_text;
   }
 
-  if (Array.isArray(result?.output)) {
+  if (result.output) {
     for (const item of result.output) {
-      if (item?.type === "message" && Array.isArray(item.content)) {
+      if (item.type === "message" && Array.isArray(item.content)) {
         const textParts = item.content
-          .filter((content: any) => content?.type === "output_text")
-          .map((content: any) => content?.text)
-          .filter((text: any) => typeof text === "string");
+          .map((content) =>
+            content.type === "output_text" ? content.text : null
+          )
+          .filter((text) => typeof text === "string");
         if (textParts.length > 0) {
           return textParts.join("");
         }
@@ -543,15 +766,15 @@ function extractResponseText(result: any): string {
     }
   }
 
-  if (Array.isArray(result?.choices)) {
+  if (result.choices) {
     const content = result.choices[0]?.message?.content;
-    if (typeof content === "string") return content;
+    if (content) return content;
   }
 
   return "";
-}
+};
 
-async function requestOpenAi(apiKey: string, payload: Record<string, unknown>) {
+const requestOpenAi = async (apiKey: string, payload: unknown) => {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -568,10 +791,11 @@ async function requestOpenAi(apiKey: string, payload: Record<string, unknown>) {
     );
   }
 
-  return responseText ? JSON.parse(responseText) : {};
-}
+  const parsed = responseText ? safeJsonParse(responseText) : {};
+  return openAiResponseSchema.parse(parsed);
+};
 
-function shouldFallbackToNoTools(error: unknown) {
+const shouldFallbackToNoTools = (error: unknown) => {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
   return (
@@ -580,9 +804,9 @@ function shouldFallbackToNoTools(error: unknown) {
     message.includes("unsupported") ||
     message.includes("unknown")
   );
-}
+};
 
-function safeJsonParse(text: string) {
+const safeJsonParse = (text: string) => {
   if (!text) return null;
   try {
     return JSON.parse(text);
@@ -595,146 +819,85 @@ function safeJsonParse(text: string) {
       return null;
     }
   }
-}
+};
 
-function normalizeProduct(product: any) {
-  const confidenceRaw = toNumber(product?.confidence);
-  const confidence =
-    confidenceRaw !== null && confidenceRaw > 1
-      ? confidenceRaw / 100
-      : confidenceRaw;
-
-  return {
-    name: normalizeString(product?.name),
-    brand: normalizeString(product?.brand),
-    model: normalizeString(product?.model),
-    category: normalizeString(product?.category),
-    variant: normalizeString(product?.variant),
-    confidence,
-    confidence_label: normalizeString(product?.confidence_label),
-    evidence: Array.isArray(product?.evidence)
-      ? product.evidence.filter((item: unknown) => typeof item === "string")
-      : null,
-  };
-}
-
-function normalizePricing(pricing: any, condition: string) {
-  const currency = normalizeString(pricing?.currency) ?? "USD";
-  const newAverage = toNumber(pricing?.new?.average);
-  const newMinimum = toNumber(pricing?.new?.minimum);
-  const usedLow = toNumber(pricing?.used?.low);
-  const usedMedian = toNumber(pricing?.used?.median);
-  const usedHigh = toNumber(pricing?.used?.high);
-
-  const recommendedFromModel = toNumber(pricing?.recommended?.price);
-  const recommendationFromModel = normalizeString(pricing?.recommended?.rationale);
-
+const finalizePricing = (
+  pricing: z.infer<typeof pricingSchema>,
+  condition: z.infer<typeof conditionEnum>
+) => {
+  const currency = pricing.currency ?? "USD";
   const fallback = computeRecommendation({
     condition,
-    newAverage,
-    newMinimum,
-    usedLow,
-    usedMedian,
-    usedHigh,
+    newAverage: pricing.new.average,
+    newMinimum: pricing.new.minimum,
+    usedLow: pricing.used.low,
+    usedMedian: pricing.used.median,
+    usedHigh: pricing.used.high,
   });
 
-  const recommendedPrice =
-    recommendedFromModel !== null ? recommendedFromModel : fallback.price;
+  const recommendedPrice = pricing.recommended.price ?? fallback.price;
   const recommendedRationale =
-    recommendationFromModel ?? fallback.rationale ?? null;
+    pricing.recommended.rationale ?? fallback.rationale ?? null;
 
-  const sources = Array.isArray(pricing?.sources)
-    ? pricing.sources
-        .map((source: any) => ({
-          title: normalizeString(source?.title),
-          url: normalizeString(source?.url),
-          price: toNumber(source?.price),
-          condition: normalizeString(source?.condition),
-          type: normalizeString(source?.type),
-        }))
-        .filter((source: any) => source.url)
+  const filteredSources = pricing.sources
+    ? R.pipe(
+        pricing.sources,
+        R.filter((source) => source.url)
+      )
     : null;
 
   return {
+    ...pricing,
     currency,
-    new: {
-      average: newAverage,
-      minimum: newMinimum,
-    },
-    used: {
-      low: usedLow,
-      median: usedMedian,
-      high: usedHigh,
-    },
     recommended: {
       price: recommendedPrice,
       rationale: recommendedRationale,
     },
-    sources,
+    sources: filteredSources && filteredSources.length > 0 ? filteredSources : null,
   };
-}
+};
 
-function normalizeListing(
-  listing: any,
-  product: ReturnType<typeof normalizeProduct>,
-  pricing: ReturnType<typeof normalizePricing>,
-  condition: string,
-  extraction: any
-) {
-  const title = normalizeString(listing?.title) ?? product.name ?? null;
-  const description = normalizeString(listing?.description);
-  const reasonForSelling = normalizeString(listing?.reason_for_selling);
-  const issuesFromListing = Array.isArray(listing?.issues)
-    ? listing.issues.filter((item: unknown) => typeof item === "string")
-    : null;
-  const issuesFromExtraction = Array.isArray(extraction?.issues)
-    ? extraction.issues.filter((item: unknown) => typeof item === "string")
-    : null;
-  const wearFromExtraction = Array.isArray(extraction?.visible_wear)
-    ? extraction.visible_wear.filter((item: unknown) => typeof item === "string")
-    : null;
-  const missingFromExtraction = Array.isArray(extraction?.missing_parts)
-    ? extraction.missing_parts.filter(
-        (item: unknown) => typeof item === "string"
-      )
-    : null;
-  const issues =
-    issuesFromListing ??
-    issuesFromExtraction ??
-    wearFromExtraction ??
-    missingFromExtraction ??
-    null;
-  const loved = Array.isArray(listing?.loved)
-    ? listing.loved.filter((item: unknown) => typeof item === "string")
-    : null;
-  const highlights = Array.isArray(listing?.highlights)
-    ? listing.highlights.filter((item: unknown) => typeof item === "string")
-    : null;
+const finalizeListing = ({
+  listing,
+  product,
+  pricing,
+  condition,
+  extraction,
+}: {
+  listing: z.infer<typeof listingSchema>;
+  product: z.infer<typeof productSchema>;
+  pricing: z.infer<typeof pricingSchema>;
+  condition: z.infer<typeof conditionEnum>;
+  extraction: z.infer<typeof extractionSchema>;
+}) => {
+  const issues = firstNonEmptyList([
+    listing.issues,
+    extraction.issues,
+    extraction.visible_wear,
+    extraction.missing_parts,
+  ]);
+
   const listingCondition =
-    normalizeString(listing?.condition) ??
-    normalizeString(extraction?.condition) ??
-    condition ??
-    null;
+    listing.condition ?? extraction.condition ?? condition ?? null;
 
-  const recommended =
-    pricing?.recommended?.price !== null &&
-    pricing?.recommended?.price !== undefined
-      ? pricing.recommended.price
-      : toNumber(listing?.recommended_price);
+  const recommendedPrice =
+    listing.recommended_price ?? pricing.recommended.price ?? null;
 
   return {
-    title,
-    description,
-    reason_for_selling: reasonForSelling,
+    ...listing,
+    title: listing.title ?? product.name,
     issues,
-    loved,
-    highlights,
     condition: listingCondition,
-    recommended_price: recommended,
+    recommended_price: recommendedPrice,
   };
-}
+};
 
-function computeRecommendation({
+const firstNonEmptyList = (lists: Array<unknown>) => {
+  const found = R.find(lists, (list) => Array.isArray(list) && list.length > 0);
+  return found ?? null;
+};
+
+const computeRecommendation = ({
   condition,
   newAverage,
   newMinimum,
@@ -742,19 +905,15 @@ function computeRecommendation({
   usedMedian,
   usedHigh,
 }: {
-  condition: string;
+  condition: z.infer<typeof conditionEnum>;
   newAverage: number | null;
   newMinimum: number | null;
   usedLow: number | null;
   usedMedian: number | null;
   usedHigh: number | null;
-}) {
-  const conditionKey = condition as
-    | "new"
-    | "like_new"
-    | "good"
-    | "fair"
-    | "poor";
+}) => {
+  const parsedCondition = conditionEnum.safeParse(condition);
+  const conditionKey = parsedCondition.success ? parsedCondition.data : "good";
 
   const rangeMid =
     usedLow !== null && usedHigh !== null
@@ -805,32 +964,13 @@ function computeRecommendation({
   }
 
   return { price, rationale };
-}
+};
 
-function normalizeString(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function toNumber(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const cleaned = value.replace(/[^0-9.]/g, "");
-    if (!cleaned) return null;
-    const parsed = Number.parseFloat(cleaned);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
-}
+};

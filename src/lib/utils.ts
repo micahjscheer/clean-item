@@ -5,7 +5,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB"];
@@ -13,10 +13,10 @@ export function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-export function formatDimensions(width: number, height: number): string {
+export function formatDimensions(width: number, height: number) {
   return `${width} × ${height}`;
 }
 
-export function generateId(): string {
+export function generateId() {
   return crypto.randomUUID();
 }
