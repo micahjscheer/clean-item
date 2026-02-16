@@ -28,6 +28,7 @@ export function IndexPage() {
   const createUpload = useMutation(api.uploads.createUpload);
   const addImage = useMutation(api.uploads.addImage);
   const generateUploadUrl = useMutation(api.uploads.generateUploadUrl);
+  const ensureUploadAssessment = useMutation(api.assessments.ensureUploadAssessment);
   const startEdit = useMutation(api.jobs.startEdit);
   
   const jobs = useQuery(
@@ -42,6 +43,11 @@ export function IndexPage() {
 
   const images = useQuery(
     api.uploads.getImagesByUpload,
+    currentUploadId ? { uploadId: currentUploadId } : "skip"
+  );
+
+  const assessment = useQuery(
+    api.assessments.getUploadAssessment,
     currentUploadId ? { uploadId: currentUploadId } : "skip"
   );
 
@@ -106,6 +112,9 @@ export function IndexPage() {
         imageIds.push(imageId);
       }
 
+      // Ensure upload-level classification + research runs once for this upload.
+      await ensureUploadAssessment({ uploadId });
+
       // Start edit jobs for all images in parallel
       await Promise.all(
         imageIds.map((imageId) =>
@@ -119,7 +128,7 @@ export function IndexPage() {
     } catch (error) {
       console.error("Failed to start processing:", error);
     }
-  }, [uploadedImages, sessionId, createUpload, generateUploadUrl, addImage, startEdit, cleanlinessLevel, targetOutput]);
+  }, [uploadedImages, sessionId, createUpload, generateUploadUrl, addImage, ensureUploadAssessment, startEdit, cleanlinessLevel, targetOutput]);
 
   const handleReset = useCallback(() => {
     uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
@@ -171,6 +180,7 @@ export function IndexPage() {
           jobs={jobs ?? []}
           outputs={outputs ?? []}
           images={images ?? []}
+          assessment={assessment ?? null}
           uploadedImages={uploadedImages}
           allComplete={allJobsComplete ?? false}
           onReset={handleReset}

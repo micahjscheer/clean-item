@@ -19,11 +19,13 @@ import type { Doc, Id } from "../../convex/_generated/dataModel";
 type Job = Doc<"jobs">;
 type Output = Doc<"outputs"> & { url: string | null; imageId: Id<"images"> };
 type ImageWithUrl = Doc<"images"> & { url: string | null };
+type UploadAssessment = Doc<"uploadAssessments">;
 
 interface JobsPanelProps {
   jobs: Job[];
   outputs: Output[];
   images: ImageWithUrl[];
+  assessment: UploadAssessment | null;
   uploadedImages: UploadedImage[];
   allComplete: boolean;
   onReset: () => void;
@@ -33,6 +35,7 @@ export function JobsPanel({
   jobs,
   outputs,
   images,
+  assessment,
   uploadedImages,
   allComplete,
   onReset,
@@ -158,6 +161,98 @@ export function JobsPanel({
               width: `${jobs.length > 0 ? ((succeededCount + failedCount) / jobs.length) * 100 : 0}%`,
             }}
           />
+        </div>
+      )}
+
+      {/* Upload assessment */}
+      {assessment && (
+        <div className="p-4 rounded-xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)] space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-medium text-[var(--color-text)]">
+                Intake Classification & Research
+              </h4>
+              <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                {assessment.status === "queued" &&
+                  "Queued for upload assessment"}
+                {assessment.status === "running" &&
+                  `Running • ${assessment.progressPct}%`}
+                {assessment.status === "succeeded" && "Completed"}
+                {assessment.status === "failed" &&
+                  `Failed${assessment.error ? `: ${assessment.error}` : ""}`}
+              </p>
+            </div>
+            {assessment.status === "running" && (
+              <Loader2 className="w-4 h-4 animate-spin text-[var(--color-accent)]" />
+            )}
+            {assessment.status === "succeeded" && (
+              <CheckCircle2 className="w-4 h-4 text-[var(--color-success)]" />
+            )}
+            {assessment.status === "failed" && (
+              <XCircle className="w-4 h-4 text-[var(--color-error)]" />
+            )}
+          </div>
+
+          {assessment.classification && (
+            <div className="grid md:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
+                <p className="text-[var(--color-text-subtle)] mb-1">Main item</p>
+                <p className="font-medium text-[var(--color-text)]">
+                  {assessment.classification.acceptedMainItem || "Unknown"}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
+                <p className="text-[var(--color-text-subtle)] mb-1">Model number</p>
+                <p className="font-medium text-[var(--color-text)]">
+                  {assessment.classification.acceptedModelNumber || "Unknown"}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
+                <p className="text-[var(--color-text-subtle)] mb-1">
+                  Irrelevant images flagged
+                </p>
+                <p className="font-medium text-[var(--color-text)]">
+                  {assessment.classification.irrelevantImages.length}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {assessment.classification &&
+            assessment.classification.irrelevantImages.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-[var(--color-text-muted)]">
+                  Irrelevant image notes
+                </p>
+                <ul className="space-y-1">
+                  {assessment.classification.irrelevantImages.map((item) => {
+                    const image = imageMap.get(item.imageId);
+                    return (
+                      <li
+                        key={item.imageId}
+                        className="text-xs text-[var(--color-text-subtle)]"
+                      >
+                        <span className="font-medium text-[var(--color-text-muted)]">
+                          {image?.fileName || item.imageId}
+                        </span>
+                        {`: ${item.reason}`}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+          {assessment.research && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-[var(--color-text-muted)]">
+                Research summary
+              </p>
+              <p className="text-xs text-[var(--color-text-subtle)] leading-relaxed">
+                {assessment.research.combinedSummary}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

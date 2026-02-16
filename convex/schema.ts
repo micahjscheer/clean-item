@@ -46,6 +46,99 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_image", ["imageId"]),
 
+  uploadAssessments: defineTable({
+    uploadId: v.id("uploads"),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("succeeded"),
+      v.literal("failed")
+    ),
+    progressPct: v.number(),
+    error: v.optional(v.string()),
+    classifierModelId: v.string(),
+    researchGeminiModelId: v.string(),
+    researchOpenAiModelId: v.string(),
+    classification: v.optional(
+      v.object({
+        acceptedCondition: v.optional(v.string()),
+        acceptedMainItem: v.optional(v.string()),
+        acceptedModelNumber: v.optional(v.string()),
+        specialFindings: v.array(v.string()),
+        relevantImageIds: v.array(v.id("images")),
+        irrelevantImages: v.array(
+          v.object({
+            imageId: v.id("images"),
+            reason: v.string(),
+            confidence: v.number(),
+          })
+        ),
+        perImage: v.array(
+          v.object({
+            imageId: v.id("images"),
+            isRelevant: v.boolean(),
+            reason: v.string(),
+            condition: v.optional(v.string()),
+            mainItem: v.optional(v.string()),
+            modelNumber: v.optional(v.string()),
+            specialFindings: v.array(v.string()),
+            confidence: v.number(),
+          })
+        ),
+      })
+    ),
+    research: v.optional(
+      v.object({
+        gemini: v.object({
+          summary: v.string(),
+          normalizedItemName: v.optional(v.string()),
+          inferredManufacturer: v.optional(v.string()),
+          inferredModelNumber: v.optional(v.string()),
+          alternateModelNumbers: v.array(v.string()),
+          conditionAssessment: v.optional(v.string()),
+          keyFindings: v.array(v.string()),
+          specialConsiderations: v.array(v.string()),
+          recommendedQueries: v.array(v.string()),
+          confidence: v.union(
+            v.literal("low"),
+            v.literal("medium"),
+            v.literal("high")
+          ),
+        }),
+        openai: v.object({
+          summary: v.string(),
+          normalizedItemName: v.optional(v.string()),
+          inferredManufacturer: v.optional(v.string()),
+          inferredModelNumber: v.optional(v.string()),
+          alternateModelNumbers: v.array(v.string()),
+          conditionAssessment: v.optional(v.string()),
+          keyFindings: v.array(v.string()),
+          specialConsiderations: v.array(v.string()),
+          recommendedQueries: v.array(v.string()),
+          confidence: v.union(
+            v.literal("low"),
+            v.literal("medium"),
+            v.literal("high")
+          ),
+        }),
+        combinedSummary: v.string(),
+        consensusModelNumber: v.optional(v.string()),
+        keyFindings: v.array(v.string()),
+        recommendedQueries: v.array(v.string()),
+        followUpQuestions: v.array(v.string()),
+        confidence: v.union(
+          v.literal("low"),
+          v.literal("medium"),
+          v.literal("high")
+        ),
+      })
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  }).index("by_upload", ["uploadId"]),
+
   outputs: defineTable({
     jobId: v.id("jobs"),
     storageId: v.id("_storage"),
