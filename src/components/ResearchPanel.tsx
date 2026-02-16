@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   Clock,
@@ -150,6 +151,8 @@ export function ResearchPanel({
           );
 
           const data = getResearchData(job);
+          const isIrrelevant = isLikelyIrrelevant(data.extraction);
+          const irrelevantReason = getIrrelevantReason(data.extraction);
           const recommended =
             data.listing.recommended_price ?? data.pricing.recommended.price;
           const currency = data.pricing.currency ?? "USD";
@@ -166,7 +169,9 @@ export function ResearchPanel({
                 "border bg-[var(--color-bg-elevated)] transition-all duration-200",
                 "animate-slide-up opacity-0",
                 `stagger-${Math.min(index + 1, 6)}`,
-                job.status === "succeeded"
+                job.status === "succeeded" && isIrrelevant
+                  ? "border-amber-500/50 hover:border-amber-400"
+                  : job.status === "succeeded"
                   ? "border-[var(--color-success)]/30 hover:border-[var(--color-success)]"
                   : job.status === "failed"
                   ? "border-[var(--color-error)]/30"
@@ -231,9 +236,15 @@ export function ResearchPanel({
 
               <div className="absolute top-2 left-2">
                 {job.status === "succeeded" && (
-                  <div className="p-1 rounded-md bg-[var(--color-success)] text-white">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                  </div>
+                  isIrrelevant ? (
+                    <div className="p-1 rounded-md bg-amber-500 text-white">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    </div>
+                  ) : (
+                    <div className="p-1 rounded-md bg-[var(--color-success)] text-white">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    </div>
+                  )
                 )}
                 {job.status === "failed" && (
                   <div className="p-1 rounded-md bg-[var(--color-error)] text-white">
@@ -241,6 +252,14 @@ export function ResearchPanel({
                   </div>
                 )}
               </div>
+
+              {job.status === "succeeded" && isIrrelevant && (
+                <div className="absolute top-2 right-2 max-w-[70%] px-2 py-1 rounded-md bg-amber-500/90 backdrop-blur-sm">
+                  <span className="text-[10px] text-white font-medium">
+                    {irrelevantReason ?? "Possibly irrelevant image"}
+                  </span>
+                </div>
+              )}
 
               {job.status === "succeeded" && recommended !== null && (
                 <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm">
@@ -305,6 +324,12 @@ export function ResearchPanel({
                         )}`
                       : ""}
                   </p>
+                  {isLikelyIrrelevant(selectedData.extraction) && (
+                    <p className="text-xs text-amber-400 mt-1">
+                      {getIrrelevantReason(selectedData.extraction) ??
+                        "Classifier flagged this image as likely irrelevant."}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -325,6 +350,7 @@ export function ResearchPanel({
                 </div>
 
                 <div className="space-y-5">
+                  {renderRelevanceAlert(selectedData)}
                   {renderIdentification(selectedData)}
                   {renderListing(selectedData)}
                   {renderPricing(selectedData)}
@@ -493,6 +519,9 @@ function renderExtraction(data: ReturnType<typeof getResearchData>) {
   const { extraction } = data;
 
   const hasDetails =
+    extraction.main_item ||
+    extraction.model_number ||
+    extraction.special_findings?.length ||
     (extraction.materials && extraction.materials.length > 0) ||
     (extraction.colors && extraction.colors.length > 0) ||
     (extraction.visible_wear && extraction.visible_wear.length > 0) ||
@@ -513,6 +542,12 @@ function renderExtraction(data: ReturnType<typeof getResearchData>) {
         Visual Details
       </h4>
       <div className="grid grid-cols-2 gap-2 text-sm">
+        <InfoRow label="Main Item" value={extraction.main_item} />
+        <InfoRow label="Model Number" value={extraction.model_number} />
+        <InfoRow
+          label="Classifier Relevance"
+          value={extraction.relevance.is_relevant ? "Relevant" : "Irrelevant"}
+        />
         <InfoRow
           label="Materials"
           value={formatList(extraction.materials)}
@@ -541,12 +576,39 @@ function renderExtraction(data: ReturnType<typeof getResearchData>) {
           label="Accessories"
           value={formatList(extraction.accessories)}
         />
+        <InfoRow
+          label="Special Findings"
+          value={formatList(extraction.special_findings)}
+        />
       </div>
       {extraction.notes && (
         <p className="text-xs text-[var(--color-text-muted)]">
           {extraction.notes}
         </p>
       )}
+    </section>
+  );
+}
+
+function renderRelevanceAlert(data: ReturnType<typeof getResearchData>) {
+  const { extraction } = data;
+  if (extraction.relevance.is_relevant) return null;
+
+  return (
+    <section className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+      <p className="text-sm font-medium text-amber-300">
+        Classifier flagged this image as likely irrelevant
+      </p>
+      <p className="text-xs text-amber-200/90 mt-1">
+        {extraction.relevance.reason ?? "No reason provided."}
+      </p>
+      {extraction.relevance.distracting_elements &&
+        extraction.relevance.distracting_elements.length > 0 && (
+          <p className="text-xs text-amber-200/90 mt-1">
+            Distracting elements:{" "}
+            {extraction.relevance.distracting_elements.join(", ")}
+          </p>
+        )}
     </section>
   );
 }
@@ -630,4 +692,13 @@ function getProductName(data: ReturnType<typeof getResearchData>) {
 
 function getExtractionCondition(data: ReturnType<typeof getResearchData>) {
   return data.extraction.condition ?? null;
+}
+
+function isLikelyIrrelevant(extraction: ReturnType<typeof parseExtraction>) {
+  return extraction.relevance?.is_relevant === false;
+}
+
+function getIrrelevantReason(extraction: ReturnType<typeof parseExtraction>) {
+  if (extraction.relevance?.is_relevant !== false) return null;
+  return extraction.relevance.reason ?? "Classifier marked image as irrelevant";
 }

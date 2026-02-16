@@ -57,6 +57,12 @@ const dimensionsSchema = z.preprocess((value) => {
   unit: z.enum(["cm", "in"]).nullable(),
 }).nullable());
 
+const relevanceSchema = z.object({
+  is_relevant: z.boolean(),
+  reason: stringValue,
+  distracting_elements: stringArrayValue,
+});
+
 export const extractionSchema = z.object({
   item_name: stringValue,
   brand: stringValue,
@@ -75,6 +81,12 @@ export const extractionSchema = z.object({
   accessories: stringArrayValue,
   dimensions: dimensionsSchema,
   notes: stringValue,
+  main_item: stringValue,
+  model_number: stringValue,
+  special_findings: stringArrayValue,
+  confidence: confidenceValue,
+  confidence_label: stringValue,
+  relevance: relevanceSchema,
 });
 
 export const productSchema = z.object({
@@ -192,6 +204,16 @@ const defaultExtraction = {
   accessories: null,
   dimensions: null,
   notes: null,
+  main_item: null,
+  model_number: null,
+  special_findings: null,
+  confidence: null,
+  confidence_label: null,
+  relevance: {
+    is_relevant: true,
+    reason: null,
+    distracting_elements: null,
+  },
 };
 
 const safeParse = (schema: z.ZodTypeAny, fallback: unknown, value: unknown) =>

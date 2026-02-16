@@ -11,10 +11,11 @@ import { z } from "zod";
 import * as R from "remeda";
 import { conditionSchema } from "./validators";
 
-const VISION_MODEL_ID =
-  process.env.GEMINI_VISION_MODEL_ID ?? "gemini-3-flash-preview";
-const OPENAI_RESEARCH_MODEL =
-  process.env.OPENAI_RESEARCH_MODEL ?? "gpt-4.1";
+const CLASSIFIER_MODEL_ID =
+  process.env.OPENROUTER_CLASSIFIER_MODEL ?? "google/gemini-2.5-flash";
+const GEMINI_RESEARCH_MODEL_ID =
+  process.env.GEMINI_RESEARCH_MODEL ?? "gemini-2.5-pro";
+const OPENAI_RESEARCH_MODEL_ID = process.env.OPENAI_RESEARCH_MODEL ?? "o3";
 
 const conditionEnum = z.enum(["new", "like_new", "good", "fair", "poor"]);
 
@@ -66,6 +67,40 @@ const dimensionsSchema = z.preprocess((value) => {
   unit: z.enum(["cm", "in"]).nullable(),
 }).nullable());
 
+const relevanceStageSchema = z.object({
+  is_relevant: z.boolean().default(true),
+  reason: stringValue.default(null),
+  distracting_elements: stringArrayValue.default(null),
+});
+
+const classifierStageSchema = z.object({
+  main_item: stringValue.default(null),
+  category: stringValue.default(null),
+  brand: stringValue.default(null),
+  model: stringValue.default(null),
+  model_number: stringValue.default(null),
+  condition: stringValue.default(null),
+  confidence: confidenceValue.default(null),
+  confidence_label: stringValue.default(null),
+  special_findings: stringArrayValue.default(null),
+  visible_wear: stringArrayValue.default(null),
+  issues: stringArrayValue.default(null),
+  missing_parts: stringArrayValue.default(null),
+  included_items: stringArrayValue.default(null),
+  accessories: stringArrayValue.default(null),
+  markings: stringArrayValue.default(null),
+  serial_numbers: stringArrayValue.default(null),
+  materials: stringArrayValue.default(null),
+  colors: stringArrayValue.default(null),
+  dimensions: dimensionsSchema.default(null),
+  notes: stringValue.default(null),
+  relevance: relevanceStageSchema.default({
+    is_relevant: true,
+    reason: null,
+    distracting_elements: null,
+  }),
+});
+
 const extractionSchema = z.object({
   item_name: stringValue,
   brand: stringValue,
@@ -84,6 +119,12 @@ const extractionSchema = z.object({
   accessories: stringArrayValue,
   dimensions: dimensionsSchema,
   notes: stringValue,
+  main_item: stringValue,
+  model_number: stringValue,
+  special_findings: stringArrayValue,
+  confidence: confidenceValue,
+  confidence_label: stringValue,
+  relevance: relevanceStageSchema,
 });
 
 const productSchema = z.object({
@@ -151,7 +192,19 @@ const listingSchema = z.object({
   recommended_price: numberValue,
 });
 
-const researchSchema = z.object({
+const geminiResearchStageSchema = z.object({
+  product: productSchema,
+  pricing: pricingSchema,
+  listing: listingSchema,
+});
+
+const openAiResearchStageSchema = z.object({
+  product: productSchema,
+  pricing: pricingSchema,
+  listing: listingSchema,
+});
+
+const mergedResearchStageSchema = z.object({
   product: productSchema,
   pricing: pricingSchema,
   listing: listingSchema,
@@ -171,6 +224,22 @@ const geminiResponseSchema = z
                   })
                 )
                 .optional(),
+            })
+            .optional(),
+        })
+      )
+      .optional(),
+  })
+  .passthrough();
+
+const openRouterResponseSchema = z
+  .object({
+    choices: z
+      .array(
+        z.object({
+          message: z
+            .object({
+              content: z.any().optional(),
             })
             .optional(),
         })
@@ -211,19 +280,30 @@ const openAiResponseSchema = z
   })
   .passthrough();
 
-const geminiRequestSchema = z.object({
+const classifierRequestSchema = z.object({
   apiKey: z.string(),
-  modelId: z.string(),
+  model: z.string(),
   imageBase64: z.string(),
   mimeType: z.string(),
 });
 
-const openAiRequestSchema = z.object({
+const geminiResearchRequestSchema = z.object({
   apiKey: z.string(),
   model: z.string(),
-  extraction: extractionSchema,
+  classification: classifierStageSchema,
   condition: conditionEnum,
 });
+
+const openAiResearchRequestSchema = z.object({
+  apiKey: z.string(),
+  model: z.string(),
+  classification: classifierStageSchema,
+  condition: conditionEnum,
+});
+
+type ClassificationStage = z.infer<typeof classifierStageSchema>;
+type ExtractionStage = z.infer<typeof extractionSchema>;
+type ResearchStage = z.infer<typeof mergedResearchStageSchema>;
 
 export const startResearch = mutation({
   args: {
@@ -236,8 +316,8 @@ export const startResearch = mutation({
       status: "queued",
       progressPct: 0,
       condition: args.condition,
-      extractModelId: VISION_MODEL_ID,
-      researchModelId: OPENAI_RESEARCH_MODEL,
+      extractModelId: CLASSIFIER_MODEL_ID,
+      researchModelId: `${GEMINI_RESEARCH_MODEL_ID} | ${OPENAI_RESEARCH_MODEL_ID}`,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -261,8 +341,8 @@ export const queueResearch = internalMutation({
       status: "queued",
       progressPct: 0,
       condition: args.condition,
-      extractModelId: VISION_MODEL_ID,
-      researchModelId: OPENAI_RESEARCH_MODEL,
+      extractModelId: CLASSIFIER_MODEL_ID,
+      researchModelId: `${GEMINI_RESEARCH_MODEL_ID} | ${OPENAI_RESEARCH_MODEL_ID}`,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -393,54 +473,122 @@ export const processResearch = internalAction({
           `Image fetch failed: ${imageResponse.status} - ${errorText}`
         );
       }
+
       const imageArrayBuffer = await imageResponse.arrayBuffer();
       const imageBase64 = arrayBufferToBase64(imageArrayBuffer);
 
-      const apiKey = process.env.GOOGLE_API_KEY;
-      if (!apiKey) {
-        throw new Error("GOOGLE_API_KEY not configured");
+      const openRouterKey = process.env.OPENROUTER_API_KEY;
+      if (!openRouterKey) {
+        throw new Error("OPENROUTER_API_KEY not configured");
       }
 
-      const extraction = await callGeminiExtraction({
-        apiKey,
-        modelId: research.extractModelId,
+      const classification = await callOpenRouterClassifier({
+        apiKey: openRouterKey,
+        model: research.extractModelId || CLASSIFIER_MODEL_ID,
         imageBase64,
         mimeType: image.mimeType,
       });
 
+      const extraction = normalizeClassification(classification);
+      const classifierCondition = normalizeCondition(classification.condition);
+      const resolvedCondition = classifierCondition ?? research.condition;
+
       await ctx.runMutation(internal.research.updateResearch, {
         researchId: args.researchId,
-        progressPct: 40,
+        progressPct: 35,
         extraction,
       });
+
+      if (!classification.relevance.is_relevant) {
+        const irrelevantResult = buildIrrelevantResearchResult(
+          classification,
+          resolvedCondition
+        );
+        const finalizedPricing = finalizePricing(
+          irrelevantResult.pricing,
+          resolvedCondition
+        );
+        const finalizedListing = finalizeListing({
+          listing: irrelevantResult.listing,
+          product: irrelevantResult.product,
+          pricing: finalizedPricing,
+          condition: resolvedCondition,
+          extraction,
+        });
+
+        await ctx.runMutation(internal.research.updateResearch, {
+          researchId: args.researchId,
+          progressPct: 100,
+          status: "succeeded",
+          product: irrelevantResult.product,
+          pricing: finalizedPricing,
+          listing: finalizedListing,
+        });
+        return;
+      }
+
+      const geminiKey = process.env.GOOGLE_API_KEY;
+      if (!geminiKey) {
+        throw new Error("GOOGLE_API_KEY not configured");
+      }
 
       const openAiKey = process.env.OPENAI_API_KEY;
       if (!openAiKey) {
         throw new Error("OPENAI_API_KEY not configured");
       }
 
-      const researchResult = await callOpenAiResearch({
-        apiKey: openAiKey,
-        model: research.researchModelId,
-        extraction,
-        condition: research.condition,
+      const [geminiResearchResult, openAiResearchResult] = await Promise.all([
+        callGeminiResearch({
+          apiKey: geminiKey,
+          model: GEMINI_RESEARCH_MODEL_ID,
+          classification,
+          condition: resolvedCondition,
+        }).catch((error) => {
+          console.error("Gemini research stage failed:", error);
+          return null;
+        }),
+        callOpenAiResearch({
+          apiKey: openAiKey,
+          model: OPENAI_RESEARCH_MODEL_ID,
+          classification,
+          condition: resolvedCondition,
+        }).catch((error) => {
+          console.error("OpenAI research stage failed:", error);
+          return null;
+        }),
+      ]);
+
+      await ctx.runMutation(internal.research.updateResearch, {
+        researchId: args.researchId,
+        progressPct: 80,
       });
 
-      const pricing = finalizePricing(researchResult.pricing, research.condition);
-      const listing = finalizeListing({
-        listing: researchResult.listing,
-        product: researchResult.product,
-        pricing,
-        condition: research.condition,
+      if (!geminiResearchResult && !openAiResearchResult) {
+        throw new Error("Both Gemini and OpenAI research stages failed");
+      }
+
+      const mergedResearch = mergeResearchResults({
+        gemini: geminiResearchResult,
+        openAi: openAiResearchResult,
+        classification,
+      });
+
+      const parsedMerged = mergedResearchStageSchema.parse(mergedResearch);
+      const finalizedPricing = finalizePricing(parsedMerged.pricing, resolvedCondition);
+      const finalizedListing = finalizeListing({
+        listing: parsedMerged.listing,
+        product: parsedMerged.product,
+        pricing: finalizedPricing,
+        condition: resolvedCondition,
         extraction,
       });
 
       await ctx.runMutation(internal.research.updateResearch, {
         researchId: args.researchId,
-        progressPct: 90,
-        product: researchResult.product,
-        pricing,
-        listing,
+        progressPct: 95,
+        product: parsedMerged.product,
+        pricing: finalizedPricing,
+        listing: finalizedListing,
       });
 
       await ctx.runMutation(internal.research.updateResearch, {
@@ -460,36 +608,151 @@ export const processResearch = internalAction({
   },
 });
 
-const callGeminiExtraction = async (
-  params: z.infer<typeof geminiRequestSchema>
+const callOpenRouterClassifier = async (
+  params: z.infer<typeof classifierRequestSchema>
 ) => {
-  const { apiKey, modelId, imageBase64, mimeType } =
-    geminiRequestSchema.parse(params);
-  const prompt = buildGeminiPrompt();
+  const { apiKey, model, imageBase64, mimeType } =
+    classifierRequestSchema.parse(params);
+  const prompt = buildClassifierPrompt();
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer":
+        process.env.OPENROUTER_REFERER ?? "https://create-listing.local",
+      "X-Title": process.env.OPENROUTER_APP_NAME ?? "Create Listing",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a strict listing-image classifier. Return only valid JSON.",
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType};base64,${imageBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `OpenRouter classifier error: ${response.status} - ${responseText}`
+    );
+  }
+
+  const parsed = safeJsonParse(responseText);
+  const result = openRouterResponseSchema.parse(parsed ?? {});
+  const content = extractOpenRouterText(result);
+
+  return parseJsonWithSchema(
+    classifierStageSchema,
+    content,
+    "OpenRouter classifier returned invalid JSON"
+  );
+};
+
+const callGeminiResearch = async (
+  params: z.infer<typeof geminiResearchRequestSchema>
+) => {
+  const { apiKey, model, classification, condition } =
+    geminiResearchRequestSchema.parse(params);
+  const prompt = buildGeminiResearchPrompt(classification, condition);
+
+  const attempts: Array<{ includeSearch: boolean; includeThinking: boolean }> = [
+    { includeSearch: true, includeThinking: true },
+    { includeSearch: false, includeThinking: true },
+    { includeSearch: false, includeThinking: false },
+  ];
+
+  const errors: string[] = [];
+
+  for (const attempt of attempts) {
+    try {
+      const result = await requestGeminiResearch(apiKey, model, prompt, attempt);
+      const parts = result.candidates?.[0]?.content?.parts ?? [];
+      const text = R.pipe(
+        parts,
+        R.map((part) => part.text),
+        R.filter((value) => typeof value === "string" && value.trim().length > 0),
+        (items) => items.join("\n").trim()
+      );
+
+      if (!text) {
+        throw new Error("Gemini research returned empty response text");
+      }
+
+      return parseJsonWithSchema(
+        geminiResearchStageSchema,
+        text,
+        "Gemini research returned invalid JSON"
+      );
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  throw new Error(`Gemini research failed: ${errors.join(" | ")}`);
+};
+
+const requestGeminiResearch = async (
+  apiKey: string,
+  model: string,
+  prompt: string,
+  options: { includeSearch: boolean; includeThinking: boolean }
+) => {
+  const generationConfig: {
+    responseMimeType: string;
+    temperature: number;
+    thinkingConfig?: { thinkingBudget: number };
+  } = {
+    responseMimeType: "application/json",
+    temperature: 0.2,
+  };
+
+  if (options.includeThinking) {
+    generationConfig.thinkingConfig = { thinkingBudget: 4096 };
+  }
+
+  const payload: {
+    contents: Array<{ parts: Array<{ text: string }> }>;
+    generationConfig: typeof generationConfig;
+    tools?: Array<{ googleSearch: Record<string, never> }>;
+  } = {
+    contents: [
+      {
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig,
+  };
+
+  if (options.includeSearch) {
+    payload.tools = [{ googleSearch: {} }];
+  }
+
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                inlineData: {
-                  mimeType,
-                  data: imageBase64,
-                },
-              },
-              { text: prompt },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.2,
-        },
-      }),
+      body: JSON.stringify(payload),
     }
   );
 
@@ -498,41 +761,24 @@ const callGeminiExtraction = async (
     throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
   }
 
-  const result = geminiResponseSchema.parse(await response.json());
-  const parts = result.candidates?.[0]?.content?.parts ?? [];
-  const text = R.pipe(
-    parts,
-    R.map((part) => part.text),
-    R.filter((value) => typeof value === "string" && value.trim().length > 0),
-    (items) => items.join("\n").trim()
-  );
-
-  if (!text) {
-    console.error("Gemini response:", JSON.stringify(result).slice(0, 1000));
-    throw new Error("Gemini returned empty response - no text in parts");
-  }
-
-  return parseJsonWithSchema(
-    extractionSchema,
-    text,
-    "Gemini returned invalid extraction JSON"
-  );
+  return geminiResponseSchema.parse(await response.json());
 };
 
 const callOpenAiResearch = async (
-  params: z.infer<typeof openAiRequestSchema>
+  params: z.infer<typeof openAiResearchRequestSchema>
 ) => {
-  const { apiKey, model, extraction, condition } =
-    openAiRequestSchema.parse(params);
-  const prompt = buildOpenAiPrompt(extraction, condition);
+  const { apiKey, model, classification, condition } =
+    openAiResearchRequestSchema.parse(params);
+  const prompt = buildOpenAiPrompt(classification, condition);
+
   const basePayload = {
     model,
-    temperature: 0.2,
+    reasoning: { effort: "high" as const },
     input: [
       {
         role: "system",
         content:
-          "You are a product research assistant. Use web search when helpful.",
+          "You are a product research assistant. Prefer verifiable marketplace evidence.",
       },
       {
         role: "user",
@@ -542,89 +788,136 @@ const callOpenAiResearch = async (
     text: {
       format: {
         type: "json_schema",
-        ...buildOpenAiSchema(),
+        ...buildOpenAiSchema("openai_research_stage"),
       },
     },
   };
 
-  const result = await requestOpenAi(apiKey, {
-    ...basePayload,
-    tools: [{ type: "web_search" }],
-  }).catch((error) => {
-    if (shouldFallbackToNoTools(error)) {
-      return requestOpenAi(apiKey, basePayload);
-    }
-    throw error;
-  });
+  const result =
+    (await requestOpenAi(apiKey, {
+      ...basePayload,
+      tools: [{ type: "web_search_preview" }],
+    }).catch(async (error) => {
+      if (shouldFallbackToLegacyWebSearch(error)) {
+        return requestOpenAi(apiKey, {
+          ...basePayload,
+          tools: [{ type: "web_search" }],
+        });
+      }
+      throw error;
+    })) ??
+    (await requestOpenAi(apiKey, basePayload));
 
   const outputText = extractResponseText(result);
   return parseJsonWithSchema(
-    researchSchema,
+    openAiResearchStageSchema,
     outputText,
-    "OpenAI returned invalid research JSON"
+    "OpenAI research returned invalid JSON"
   );
 };
 
-function buildGeminiPrompt() {
+function buildClassifierPrompt() {
   return [
-    "You are a careful product inspector.",
-    "From the image, extract the product details as JSON only.",
-    "Include condition and any visible issues or missing parts.",
-    "Condition should be one of: new, like_new, good, fair, poor.",
-    "Use the schema below and return null when unknown.",
-    "Do not include any extra commentary or markdown.",
+    "Assess this upload image for a resale listing workflow.",
+    "Return JSON only using the schema below.",
+    "Identify the main item, model info, condition, and any special findings.",
+    "Set relevance.is_relevant to false if the image is unrelated, too blurry to assess, or mostly non-product content.",
+    "Condition should map to: new, like_new, good, fair, poor when possible; otherwise null.",
+    "If a field is unknown, return null.",
     "",
     "Schema:",
     "{",
-    '  "item_name": string | null,',
+    '  "main_item": string | null,',
+    '  "category": string | null,',
     '  "brand": string | null,',
     '  "model": string | null,',
-    '  "category": string | null,',
-    '  "variant": string | null,',
-    '  "materials": string[] | null,',
-    '  "colors": string[] | null,',
+    '  "model_number": string | null,',
     '  "condition": string | null,',
+    '  "confidence": number | null,',
+    '  "confidence_label": string | null,',
+    '  "special_findings": string[] | null,',
     '  "visible_wear": string[] | null,',
     '  "issues": string[] | null,',
     '  "missing_parts": string[] | null,',
     '  "included_items": string[] | null,',
+    '  "accessories": string[] | null,',
     '  "markings": string[] | null,',
     '  "serial_numbers": string[] | null,',
-    '  "accessories": string[] | null,',
+    '  "materials": string[] | null,',
+    '  "colors": string[] | null,',
     '  "dimensions": { "length": number | null, "width": number | null, "height": number | null, "unit": "cm" | "in" | null } | null,',
-    '  "notes": string | null',
+    '  "notes": string | null,',
+    '  "relevance": {',
+    '    "is_relevant": boolean,',
+    '    "reason": string | null,',
+    '    "distracting_elements": string[] | null',
+    "  }",
     "}",
   ].join("\n");
 }
 
-function buildOpenAiPrompt(extraction: unknown, condition: string) {
-  const extractionText = JSON.stringify(extraction, null, 2);
+function buildGeminiResearchPrompt(
+  classification: ClassificationStage,
+  condition: z.infer<typeof conditionEnum>
+) {
+  const classificationText = JSON.stringify(
+    buildResearchContext(classification, condition),
+    null,
+    2
+  );
   return [
-    "Identify the exact product and research pricing.",
-    "Use the extracted visual details below.",
-    `Condition for pricing: ${condition}.`,
+    "You are a product pricing researcher.",
+    "Use available web knowledge/search grounding to identify the exact product and estimate realistic pricing.",
+    "Prefer concrete market evidence and avoid hallucinations.",
+    "Return JSON matching the schema exactly.",
+    "When uncertain, keep values null.",
     "",
-    "Provide confidence as 0-1 and a label (low, medium, high).",
-    "Use multiple searches if needed to disambiguate similar products.",
-    "Recommended price must reflect the stated condition.",
-    "Write a Facebook Marketplace ready listing title and description.",
-    "The description must include: reason for selling, any issues, and what they loved.",
-    "Include recommended_price in the listing output.",
-    "If reason for selling is unknown, suggest a neutral option like upgrading or decluttering.",
-    "Issues should reflect visible wear or missing parts from the extraction.",
-    "Use a friendly, concise tone that avoids exaggeration.",
-    "Return JSON that matches the schema exactly.",
-    "If you cannot find a value, return null.",
-    "Provide 3-6 sources with URLs and prices when available.",
+    "Research context from classifier:",
+    classificationText,
     "",
-    "Extracted details:",
-    extractionText,
+    "Output requirements:",
+    "- confidence as 0-1 and confidence_label as low/medium/high",
+    "- 3-6 sources when available",
+    "- listing copy should be concise and marketplace-ready",
+    "- include issues and condition-aligned recommended_price",
+    "",
+    "Return JSON only.",
   ].join("\n");
 }
 
-function buildOpenAiSchema() {
+function buildOpenAiPrompt(
+  classification: ClassificationStage,
+  condition: z.infer<typeof conditionEnum>
+) {
+  const classificationText = JSON.stringify(
+    buildResearchContext(classification, condition),
+    null,
+    2
+  );
+  return [
+    "Identify the exact product and research current market pricing.",
+    "Use the classifier details below as authoritative starting context.",
+    "Think carefully before finalizing answers; prioritize accuracy over coverage.",
+    `Condition for valuation: ${condition}.`,
+    "",
+    "Requirements:",
+    "- confidence as 0-1 and confidence_label low/medium/high",
+    "- recommended_price must fit condition and findings",
+    "- include 3-6 pricing sources with URLs when possible",
+    "- generate a friendly but factual listing title and description",
+    "- description must include reason_for_selling, issues, and loved points",
+    "- return null for unknown values",
+    "",
+    "Classifier context:",
+    classificationText,
+    "",
+    "Return JSON that matches the schema exactly.",
+  ].join("\n");
+}
+
+function buildOpenAiSchema(name: string) {
   return {
-    name: "product_research",
+    name,
     schema: {
       type: "object",
       additionalProperties: false,
@@ -648,7 +941,16 @@ function buildOpenAiSchema() {
               items: { type: "string" },
             },
           },
-          required: ["name", "brand", "model", "category", "variant", "confidence", "confidence_label", "evidence"],
+          required: [
+            "name",
+            "brand",
+            "model",
+            "category",
+            "variant",
+            "confidence",
+            "confidence_label",
+            "evidence",
+          ],
         },
         pricing: {
           type: "object",
@@ -740,6 +1042,258 @@ function buildOpenAiSchema() {
   };
 }
 
+const mergeResearchResults = ({
+  gemini,
+  openAi,
+  classification,
+}: {
+  gemini: ResearchStage | null;
+  openAi: ResearchStage | null;
+  classification: ClassificationStage;
+}): ResearchStage => {
+  const fallback = emptyResearchStage();
+  const g = gemini ?? fallback;
+  const o = openAi ?? fallback;
+
+  const product: z.infer<typeof productSchema> = {
+    name: firstNonNull([o.product.name, g.product.name, classification.main_item]),
+    brand: firstNonNull([o.product.brand, g.product.brand, classification.brand]),
+    model: firstNonNull([
+      o.product.model,
+      g.product.model,
+      classification.model_number,
+      classification.model,
+    ]),
+    category: firstNonNull([
+      o.product.category,
+      g.product.category,
+      classification.category,
+    ]),
+    variant: firstNonNull([o.product.variant, g.product.variant]),
+    confidence: firstNonNullNumber([
+      o.product.confidence,
+      g.product.confidence,
+      classification.confidence,
+    ]),
+    confidence_label: firstNonNull([
+      o.product.confidence_label,
+      g.product.confidence_label,
+      classification.confidence_label,
+    ]),
+    evidence: mergeUniqueStrings([
+      o.product.evidence,
+      g.product.evidence,
+      classification.special_findings,
+    ]),
+  };
+
+  const pricing: z.infer<typeof pricingSchema> = {
+    currency: firstNonNull([o.pricing.currency, g.pricing.currency]),
+    new: {
+      average: firstNonNullNumber([o.pricing.new.average, g.pricing.new.average]),
+      minimum: firstNonNullNumber([o.pricing.new.minimum, g.pricing.new.minimum]),
+    },
+    used: {
+      low: firstNonNullNumber([o.pricing.used.low, g.pricing.used.low]),
+      median: firstNonNullNumber([o.pricing.used.median, g.pricing.used.median]),
+      high: firstNonNullNumber([o.pricing.used.high, g.pricing.used.high]),
+    },
+    recommended: {
+      price: firstNonNullNumber([
+        o.pricing.recommended.price,
+        g.pricing.recommended.price,
+      ]),
+      rationale: firstNonNull([
+        o.pricing.recommended.rationale,
+        g.pricing.recommended.rationale,
+      ]),
+    },
+    sources: mergeSources([o.pricing.sources, g.pricing.sources]),
+  };
+
+  const listing: z.infer<typeof listingSchema> = {
+    title: firstNonNull([o.listing.title, g.listing.title, classification.main_item]),
+    description: firstNonNull([o.listing.description, g.listing.description]),
+    reason_for_selling: firstNonNull([
+      o.listing.reason_for_selling,
+      g.listing.reason_for_selling,
+    ]),
+    issues: mergeUniqueStrings([
+      o.listing.issues,
+      g.listing.issues,
+      classification.issues,
+      classification.special_findings,
+    ]),
+    loved: mergeUniqueStrings([o.listing.loved, g.listing.loved]),
+    highlights: mergeUniqueStrings([
+      o.listing.highlights,
+      g.listing.highlights,
+      classification.special_findings,
+    ]),
+    condition: firstNonNull([o.listing.condition, g.listing.condition, classification.condition]),
+    recommended_price: firstNonNullNumber([
+      o.listing.recommended_price,
+      g.listing.recommended_price,
+      o.pricing.recommended.price,
+      g.pricing.recommended.price,
+    ]),
+  };
+
+  return {
+    product,
+    pricing,
+    listing,
+  };
+};
+
+const buildIrrelevantResearchResult = (
+  classification: ClassificationStage,
+  condition: z.infer<typeof conditionEnum>
+): ResearchStage => {
+  const reason =
+    classification.relevance.reason ??
+    "Image appears unrelated to a single sellable item.";
+
+  return {
+    product: {
+      name: classification.main_item,
+      brand: classification.brand,
+      model: firstNonNull([classification.model_number, classification.model]),
+      category: classification.category,
+      variant: null,
+      confidence: classification.confidence,
+      confidence_label: "low",
+      evidence: mergeUniqueStrings([
+        classification.special_findings,
+        [reason],
+        classification.relevance.distracting_elements,
+      ]),
+    },
+    pricing: {
+      currency: null,
+      new: { average: null, minimum: null },
+      used: { low: null, median: null, high: null },
+      recommended: {
+        price: null,
+        rationale: reason,
+      },
+      sources: null,
+    },
+    listing: {
+      title: classification.main_item,
+      description: reason,
+      reason_for_selling: "Image needs replacement before listing.",
+      issues: mergeUniqueStrings([
+        classification.issues,
+        classification.special_findings,
+      ]),
+      loved: null,
+      highlights: null,
+      condition,
+      recommended_price: null,
+    },
+  };
+};
+
+const buildResearchContext = (
+  classification: ClassificationStage,
+  condition: z.infer<typeof conditionEnum>
+) => ({
+  condition_for_pricing: condition,
+  classifier: {
+    main_item: classification.main_item,
+    category: classification.category,
+    brand: classification.brand,
+    model: classification.model,
+    model_number: classification.model_number,
+    condition: classification.condition,
+    confidence: classification.confidence,
+    confidence_label: classification.confidence_label,
+    special_findings: classification.special_findings,
+    visible_wear: classification.visible_wear,
+    issues: classification.issues,
+    missing_parts: classification.missing_parts,
+    included_items: classification.included_items,
+    accessories: classification.accessories,
+    markings: classification.markings,
+    serial_numbers: classification.serial_numbers,
+    materials: classification.materials,
+    colors: classification.colors,
+    dimensions: classification.dimensions,
+    notes: classification.notes,
+    relevance: classification.relevance,
+  },
+});
+
+const normalizeClassification = (
+  classification: ClassificationStage
+): ExtractionStage =>
+  extractionSchema.parse({
+    item_name: classification.main_item,
+    brand: classification.brand,
+    model: firstNonNull([classification.model_number, classification.model]),
+    category: classification.category,
+    variant: null,
+    materials: classification.materials,
+    colors: classification.colors,
+    condition: classification.condition,
+    visible_wear: classification.visible_wear,
+    issues: classification.issues,
+    missing_parts: classification.missing_parts,
+    included_items: classification.included_items,
+    markings: classification.markings,
+    serial_numbers: classification.serial_numbers,
+    accessories: classification.accessories,
+    dimensions: classification.dimensions,
+    notes: classification.notes,
+    main_item: classification.main_item,
+    model_number: classification.model_number,
+    special_findings: classification.special_findings,
+    confidence: classification.confidence,
+    confidence_label: classification.confidence_label,
+    relevance: classification.relevance,
+  });
+
+const emptyResearchStage = (): ResearchStage => ({
+  product: {
+    name: null,
+    brand: null,
+    model: null,
+    category: null,
+    variant: null,
+    confidence: null,
+    confidence_label: null,
+    evidence: null,
+  },
+  pricing: {
+    currency: null,
+    new: {
+      average: null,
+      minimum: null,
+    },
+    used: {
+      low: null,
+      median: null,
+      high: null,
+    },
+    recommended: {
+      price: null,
+      rationale: null,
+    },
+    sources: null,
+  },
+  listing: {
+    title: null,
+    description: null,
+    reason_for_selling: null,
+    issues: null,
+    loved: null,
+    highlights: null,
+    condition: null,
+    recommended_price: null,
+  },
+});
+
 const parseJsonWithSchema = <T extends z.ZodTypeAny>(
   schema: T,
   text: string,
@@ -754,9 +1308,33 @@ const parseJsonWithSchema = <T extends z.ZodTypeAny>(
   if (!result.success) {
     console.error("Schema validation failed:", result.error.issues);
     console.error("Parsed object:", JSON.stringify(parsed).slice(0, 500));
-    throw new Error(`${errorMessage}: ${result.error.issues[0]?.message ?? "Schema validation failed"}`);
+    throw new Error(
+      `${errorMessage}: ${
+        result.error.issues[0]?.message ?? "Schema validation failed"
+      }`
+    );
   }
   return result.data;
+};
+
+const extractOpenRouterText = (
+  result: z.infer<typeof openRouterResponseSchema>
+) => {
+  const content = result.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part) {
+          const text = (part as { text?: unknown }).text;
+          return typeof text === "string" ? text : "";
+        }
+        return "";
+      })
+      .join("\n");
+  }
+  return "";
 };
 
 const extractResponseText = (result: z.infer<typeof openAiResponseSchema>) => {
@@ -808,10 +1386,11 @@ const requestOpenAi = async (apiKey: string, payload: unknown) => {
   return openAiResponseSchema.parse(parsed);
 };
 
-const shouldFallbackToNoTools = (error: unknown) => {
+const shouldFallbackToLegacyWebSearch = (error: unknown) => {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
   return (
+    message.includes("web_search_preview") ||
     message.includes("web_search") ||
     message.includes("tool") ||
     message.includes("unsupported") ||
@@ -823,15 +1402,31 @@ const safeJsonParse = (text: string) => {
   if (!text) return null;
   try {
     return JSON.parse(text);
-  } catch (error) {
+  } catch (_error) {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
       return JSON.parse(match[0]);
-    } catch (parseError) {
+    } catch (_parseError) {
       return null;
     }
   }
+};
+
+const normalizeCondition = (
+  value: string | null
+): z.infer<typeof conditionEnum> | null => {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+  const direct = conditionEnum.safeParse(normalized);
+  if (direct.success) return direct.data;
+
+  if (["excellent", "mint", "near_mint"].includes(normalized)) return "like_new";
+  if (["very_good", "used_good", "average"].includes(normalized)) return "good";
+  if (["worn", "acceptable", "used_fair"].includes(normalized)) return "fair";
+  if (["damaged", "broken", "for_parts"].includes(normalized)) return "poor";
+  return null;
 };
 
 const finalizePricing = (
@@ -885,6 +1480,7 @@ const finalizeListing = ({
 }) => {
   const issues = firstNonEmptyList([
     listing.issues,
+    extraction.special_findings,
     extraction.issues,
     extraction.visible_wear,
     extraction.missing_parts,
@@ -898,16 +1494,68 @@ const finalizeListing = ({
 
   return {
     ...listing,
-    title: listing.title ?? product.name,
+    title: listing.title ?? product.name ?? extraction.main_item,
     issues,
     condition: listingCondition,
     recommended_price: recommendedPrice,
   };
 };
 
-const firstNonEmptyList = (lists: Array<unknown>) => {
-  const found = R.find(lists, (list) => Array.isArray(list) && list.length > 0);
-  return found ?? null;
+const firstNonNull = (values: Array<string | null | undefined>) => {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
+};
+
+const firstNonNullNumber = (values: Array<number | null | undefined>) => {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+};
+
+const mergeUniqueStrings = (
+  lists: Array<Array<string> | null | undefined>
+): Array<string> | null => {
+  const merged = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      const trimmed = item.trim();
+      if (trimmed.length > 0) {
+        merged.add(trimmed);
+      }
+    }
+  }
+  const values = Array.from(merged);
+  return values.length > 0 ? values : null;
+};
+
+const mergeSources = (
+  sourceLists: Array<Array<z.infer<typeof sourceSchema>> | null | undefined>
+): Array<z.infer<typeof sourceSchema>> | null => {
+  const byKey = new Map<string, z.infer<typeof sourceSchema>>();
+  for (const list of sourceLists) {
+    if (!Array.isArray(list)) continue;
+    for (const source of list) {
+      const key = source.url ?? source.title ?? JSON.stringify(source);
+      if (!byKey.has(key)) {
+        byKey.set(key, source);
+      }
+    }
+  }
+  const values = Array.from(byKey.values());
+  return values.length > 0 ? values : null;
+};
+
+const firstNonEmptyList = (
+  lists: Array<Array<string> | null | undefined>
+): Array<string> | null => {
+  for (const list of lists) {
+    if (Array.isArray(list) && list.length > 0) return list;
+  }
+  return null;
 };
 
 const computeRecommendation = ({
@@ -960,10 +1608,10 @@ const computeRecommendation = ({
         usedLow !== null
           ? usedLow * 0.7
           : usedMedian !== null
-          ? usedMedian * 0.6
-          : newMinimum !== null
-          ? newMinimum * 0.5
-          : null;
+            ? usedMedian * 0.6
+            : newMinimum !== null
+              ? newMinimum * 0.5
+              : null;
       rationale =
         "Poor condition reduces pricing below typical used lows.";
       break;

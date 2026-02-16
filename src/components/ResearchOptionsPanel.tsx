@@ -101,8 +101,8 @@ export function ResearchOptionsPanel({
       </div>
 
       <div className="text-xs text-[var(--color-text-subtle)]">
-        Uses Gemini 3 Pro Vision for detail extraction and OpenAI research for
-        pricing and listing copy.
+        Runs Gemini 2.5 Flash classification first, then Gemini + OpenAI
+        research with reasoning mode for pricing and listing copy.
       </div>
 
       {showStart && (

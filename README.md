@@ -1,6 +1,6 @@
 # Create Listing - Post-Detail Photo Cleaner + Pricing Research
 
-AI-powered tool to clean photos by removing dust, dirt, and smudges while preserving every detail, defect, and exact composition. Also includes product identification and pricing research powered by Gemini 3 Pro Vision and OpenAI.
+AI-powered tool to clean photos by removing dust, dirt, and smudges while preserving every detail, defect, and exact composition. Also includes staged listing research with an OpenRouter Gemini classifier plus Gemini and OpenAI research models.
 
 ## Features
 
@@ -10,7 +10,8 @@ AI-powered tool to clean photos by removing dust, dirt, and smudges while preser
 - **Real-time progress** - Live job status updates via Convex subscriptions
 - **Before/After viewer** - Interactive slider to compare original vs cleaned
 - **Batch download** - Download all cleaned images as a ZIP
-- **Product research** - Gemini 3 Pro Vision extraction + OpenAI web research
+- **Classifier stage** - Gemini 2.5 Flash (via OpenRouter) assesses item basics, condition, model hints, and image relevance
+- **Product research** - Gemini 2.5 Pro + OpenAI reasoning research for identification, pricing, and listing copy
 - **Pricing summary** - New vs used price ranges + recommended price by condition
 - **Listing workflow** - Generates title, description, and selling notes
 
@@ -19,7 +20,7 @@ AI-powered tool to clean photos by removing dust, dirt, and smudges while preser
 - **Frontend**: Vite + React + TanStack Router + Tailwind CSS
 - **UI**: shadcn/ui components + Origin UI blocks
 - **Backend**: Convex (database, file storage, actions)
-- **AI**: Google Gemini (vision + image generation/editing), OpenAI (research)
+- **AI**: OpenRouter Gemini (classifier), Google Gemini (research + image generation/editing), OpenAI (research)
 - **Auth**: Clerk
 - **Validation**: Zod
 - **Utilities**: Remeda
@@ -53,18 +54,29 @@ This will:
 3. In the Convex dashboard, go to **Settings → Environment Variables**
 4. Add `GOOGLE_API_KEY` with your API key
 
-Optional: set `GEMINI_VISION_MODEL_ID` to override the vision model
-(defaults to `gemini-3-flash-preview`).
+Optional: set `GEMINI_RESEARCH_MODEL` to override Gemini research model
+(defaults to `gemini-2.5-pro`).
 
-### 4. Set up OpenAI API Key
+### 4. Set up OpenRouter API Key (classifier stage)
+
+1. Create an API key at [OpenRouter](https://openrouter.ai/)
+2. In the Convex dashboard, go to **Settings → Environment Variables**
+3. Add `OPENROUTER_API_KEY`
+
+Optional:
+- `OPENROUTER_CLASSIFIER_MODEL` (defaults to `google/gemini-2.5-flash`)
+- `OPENROUTER_REFERER` (for OpenRouter app attribution)
+- `OPENROUTER_APP_NAME` (for OpenRouter app attribution)
+
+### 5. Set up OpenAI API Key
 
 1. Create an API key at [OpenAI](https://platform.openai.com/)
 2. In the Convex dashboard, go to **Settings → Environment Variables**
 3. Add `OPENAI_API_KEY` with your API key
 
-Optional: set `OPENAI_RESEARCH_MODEL` (defaults to `gpt-4.1`).
+Optional: set `OPENAI_RESEARCH_MODEL` (defaults to `o3`).
 
-### 5. Set up Clerk
+### 6. Set up Clerk
 
 1. Create an app in the [Clerk dashboard](https://dashboard.clerk.com/)
 2. Copy your publishable key
@@ -74,7 +86,7 @@ Optional: set `OPENAI_RESEARCH_MODEL` (defaults to `gpt-4.1`).
 VITE_CLERK_PUBLISHABLE_KEY=pk_live_...
 ```
 
-### 6. Run the app
+### 7. Run the app
 
 In one terminal, run Convex:
 
@@ -128,7 +140,7 @@ create-listing/
 | `images` | uploadId, storageId, fileName, width, height, mimeType |
 | `jobs` | imageId, status, progressPct, error, modelId, promptVersion, cleanlinessLevel, targetOutput, retryCount |
 | `outputs` | jobId, storageId, width, height, notes |
-| `productResearch` | imageId, status, progressPct, error, condition, extractModelId, researchModelId, extraction, product, pricing, listing |
+| `productResearch` | imageId, status, progressPct, error, condition, extractModelId, researchModelId, extraction (includes relevance/model hints), product, pricing, listing |
 
 ## Prompt Engineering
 
@@ -140,15 +152,18 @@ The AI is given strict instructions to:
 
 ## Configuration
 
-The model ID can be changed in `convex/jobs.ts` and `convex/research.ts`:
+Model IDs can be changed in `convex/jobs.ts` and `convex/research.ts`:
 
 ```typescript
-const MODEL_ID = "gemini-3-flash-preview";
+const CLASSIFIER_MODEL_ID = "google/gemini-2.5-flash";
+const GEMINI_RESEARCH_MODEL_ID = "gemini-2.5-pro";
+const OPENAI_RESEARCH_MODEL_ID = "o3";
 ```
 
 Available models (examples):
-- `gemini-3-flash-preview` - Fast, good quality
-- `gemini-3-pro-preview` - Higher quality, slower
+- `google/gemini-2.5-flash` (OpenRouter) - fast classifier
+- `gemini-2.5-pro` (Google) - deeper research reasoning
+- `o3` (OpenAI) - high-quality reasoning research
 
 ## License
 
