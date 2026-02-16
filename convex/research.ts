@@ -793,20 +793,28 @@ const callOpenAiResearch = async (
     },
   };
 
-  const result =
-    (await requestOpenAi(apiKey, {
+  let result: z.infer<typeof openAiResponseSchema>;
+  try {
+    result = await requestOpenAi(apiKey, {
       ...basePayload,
       tools: [{ type: "web_search_preview" }],
-    }).catch(async (error) => {
-      if (shouldFallbackToLegacyWebSearch(error)) {
-        return requestOpenAi(apiKey, {
-          ...basePayload,
-          tools: [{ type: "web_search" }],
-        });
+    });
+  } catch (previewError) {
+    if (!shouldFallbackToLegacyWebSearch(previewError)) {
+      throw previewError;
+    }
+    try {
+      result = await requestOpenAi(apiKey, {
+        ...basePayload,
+        tools: [{ type: "web_search" }],
+      });
+    } catch (legacyError) {
+      if (!shouldFallbackToLegacyWebSearch(legacyError)) {
+        throw legacyError;
       }
-      throw error;
-    })) ??
-    (await requestOpenAi(apiKey, basePayload));
+      result = await requestOpenAi(apiKey, basePayload);
+    }
+  }
 
   const outputText = extractResponseText(result);
   return parseJsonWithSchema(
