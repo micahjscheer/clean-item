@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { cleanlinessSchema, targetOutputSchema } from "./validators";
 
-const MODEL_ID = "gemini-2.0-flash-exp";
+const MODEL_ID = "gemini-2.0-flash-exp-image-generation";
 
 export const startEdit = mutation({
   args: {

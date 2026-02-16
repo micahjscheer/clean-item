@@ -188,10 +188,10 @@ export function IndexPage() {
   const researchCompleted = researchCounts.succeeded ?? 0;
   const researchTotal = researchJobs ? researchJobs.length : 0;
 
-  const allJobsComplete = R.every(jobs ?? [], (job) =>
+  const allJobsComplete = (jobs ?? []).every((job) =>
     ["succeeded", "failed"].includes(job.status)
   );
-  const allResearchComplete = R.every(researchJobs ?? [], (job) =>
+  const allResearchComplete = (researchJobs ?? []).every((job) =>
     ["succeeded", "failed"].includes(job.status)
   );
 

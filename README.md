@@ -1,4 +1,4 @@
-# CleanItem - Post-Detail Photo Cleaner + Pricing Research
+# Create Listing - Post-Detail Photo Cleaner + Pricing Research
 
 AI-powered tool to clean photos by removing dust, dirt, and smudges while preserving every detail, defect, and exact composition. Also includes product identification and pricing research powered by Gemini 3 Pro Vision and OpenAI.
 
@@ -54,7 +54,7 @@ This will:
 4. Add `GOOGLE_API_KEY` with your API key
 
 Optional: set `GEMINI_VISION_MODEL_ID` to override the vision model
-(defaults to `gemini-3.0-pro-vision`).
+(defaults to `gemini-3-flash-preview`).
 
 ### 4. Set up OpenAI API Key
 
@@ -93,7 +93,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 ## Project Structure
 
 ```
-clean-item/
+create-listing/
 ├── convex/                 # Convex backend
 │   ├── schema.ts          # Database schema (uploads, images, jobs, outputs)
 │   ├── uploads.ts         # File upload mutations/queries
@@ -143,13 +143,12 @@ The AI is given strict instructions to:
 The model ID can be changed in `convex/jobs.ts` and `convex/research.ts`:
 
 ```typescript
-const MODEL_ID = "gemini-2.0-flash-exp";
+const MODEL_ID = "gemini-3-flash-preview";
 ```
 
 Available models (examples):
-- `gemini-2.0-flash-exp` - Fast, good quality
-- `gemini-2.0-pro-exp` - Higher quality, slower
-- `gemini-3.0-pro-vision` - Vision extraction for research
+- `gemini-3-flash-preview` - Fast, good quality
+- `gemini-3-pro-preview` - Higher quality, slower
 
 ## License
 

@@ -13,7 +13,7 @@ export function RootLayout() {
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="font-semibold text-lg tracking-tight">CleanItem</h1>
+              <h1 className="font-semibold text-lg tracking-tight">Create Listing</h1>
               <p className="text-xs text-[var(--color-text-muted)] -mt-0.5">Post-Detail Photo Cleaner</p>
             </div>
           </div>
@@ -32,7 +32,7 @@ export function RootLayout() {
       </main>
       <footer className="border-t border-[var(--color-border-subtle)] py-4">
         <div className="max-w-7xl mx-auto px-6 text-center text-xs text-[var(--color-text-subtle)]">
-          Upload photos -> Clean, research, and list -> Price with confidence
+          Upload photos → Clean, research, and list → Price with confidence
         </div>
       </footer>
     </div>

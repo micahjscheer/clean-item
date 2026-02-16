@@ -12,7 +12,7 @@ import * as R from "remeda";
 import { conditionSchema } from "./validators";
 
 const VISION_MODEL_ID =
-  process.env.GEMINI_VISION_MODEL_ID ?? "gemini-3.0-pro-vision";
+  process.env.GEMINI_VISION_MODEL_ID ?? "gemini-3-flash-preview";
 const OPENAI_RESEARCH_MODEL =
   process.env.OPENAI_RESEARCH_MODEL ?? "gpt-4.1";
 
@@ -105,7 +105,7 @@ const sourceSchema = z.object({
   type: stringValue,
 });
 
-const objectValue = (schema: z.ZodTypeAny) =>
+const objectValue = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return {};
@@ -507,6 +507,11 @@ const callGeminiExtraction = async (
     (items) => items.join("\n").trim()
   );
 
+  if (!text) {
+    console.error("Gemini response:", JSON.stringify(result).slice(0, 1000));
+    throw new Error("Gemini returned empty response - no text in parts");
+  }
+
   return parseJsonWithSchema(
     extractionSchema,
     text,
@@ -534,9 +539,11 @@ const callOpenAiResearch = async (
         content: prompt,
       },
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: buildOpenAiSchema(),
+    text: {
+      format: {
+        type: "json_schema",
+        ...buildOpenAiSchema(),
+      },
     },
   };
 
@@ -641,7 +648,7 @@ function buildOpenAiSchema() {
               items: { type: "string" },
             },
           },
-          required: ["name", "confidence", "confidence_label"],
+          required: ["name", "brand", "model", "category", "variant", "confidence", "confidence_label", "evidence"],
         },
         pricing: {
           type: "object",
@@ -692,7 +699,7 @@ function buildOpenAiSchema() {
               },
             },
           },
-          required: ["currency", "new", "used", "recommended"],
+          required: ["currency", "new", "used", "recommended", "sources"],
         },
         listing: {
           type: "object",
@@ -733,15 +740,21 @@ function buildOpenAiSchema() {
   };
 }
 
-const parseJsonWithSchema = (
-  schema: z.ZodTypeAny,
+const parseJsonWithSchema = <T extends z.ZodTypeAny>(
+  schema: T,
   text: string,
   errorMessage: string
-) => {
+): z.infer<T> => {
   const parsed = safeJsonParse(text);
+  if (parsed === null) {
+    console.error("Failed to parse JSON from text:", text.slice(0, 500));
+    throw new Error(`${errorMessage}: Could not parse JSON from response`);
+  }
   const result = schema.safeParse(parsed);
   if (!result.success) {
-    throw new Error(errorMessage);
+    console.error("Schema validation failed:", result.error.issues);
+    console.error("Parsed object:", JSON.stringify(parsed).slice(0, 500));
+    throw new Error(`${errorMessage}: ${result.error.issues[0]?.message ?? "Schema validation failed"}`);
   }
   return result.data;
 };
@@ -842,7 +855,7 @@ const finalizePricing = (
   const filteredSources = pricing.sources
     ? R.pipe(
         pricing.sources,
-        R.filter((source) => source.url)
+        R.filter((source) => source.url !== null)
       )
     : null;
 
