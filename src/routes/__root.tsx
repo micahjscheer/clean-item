@@ -17,9 +17,9 @@ export function RootLayout() {
               <p className="text-xs text-[var(--color-text-muted)] -mt-0.5">Post-Detail Photo Cleaner</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 text-xs text-[var(--color-text-subtle)]">
+          <div className="flex items-center gap-3 text-sm text-[var(--color-text-subtle)]">
             <span className="px-2 py-1 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]">
-              Gemini 3 Pro Vision + OpenAI Research
+              AI Listing Assistant
             </span>
             <SignedIn>
               <ClerkUserButton />
@@ -31,7 +31,7 @@ export function RootLayout() {
         <Outlet />
       </main>
       <footer className="border-t border-[var(--color-border-subtle)] py-4">
-        <div className="max-w-7xl mx-auto px-6 text-center text-xs text-[var(--color-text-subtle)]">
+        <div className="max-w-7xl mx-auto px-6 text-center text-sm text-[var(--color-text-subtle)]">
           Upload photos → Clean, research, and list → Price with confidence
         </div>
       </footer>

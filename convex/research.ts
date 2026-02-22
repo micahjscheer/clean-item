@@ -210,6 +210,90 @@ const mergedResearchStageSchema = z.object({
   listing: listingSchema,
 });
 
+const normalizedResearchStageSchema = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const raw = value as Record<string, unknown>;
+  if ("product" in raw && "pricing" in raw && "listing" in raw) {
+    return raw;
+  }
+
+  const readString = (key: string) => {
+    const fieldValue = raw[key];
+    return typeof fieldValue === "string" ? fieldValue : null;
+  };
+
+  const readNumber = (key: string) => parseNumber(raw[key]);
+
+  const readStringArray = (key: string) => {
+    const fieldValue = raw[key];
+    if (!Array.isArray(fieldValue)) return null;
+    const filtered = fieldValue.filter((item) => typeof item === "string");
+    return filtered.length > 0 ? filtered : null;
+  };
+
+  const sourcesValue = raw.sources;
+  const normalizedSources = Array.isArray(sourcesValue)
+    ? sourcesValue
+        .filter((item) => item && typeof item === "object")
+        .map((item) => {
+          const source = item as Record<string, unknown>;
+          return {
+            title: typeof source.title === "string" ? source.title : null,
+            url: typeof source.url === "string" ? source.url : null,
+            price: parseNumber(source.price),
+            condition:
+              typeof source.condition === "string" ? source.condition : null,
+            type: typeof source.type === "string" ? source.type : null,
+          };
+        })
+    : null;
+
+  return {
+    product: {
+      name: readString("product_name") ?? readString("name"),
+      brand: readString("brand"),
+      model: readString("model"),
+      category: readString("category"),
+      variant: readString("variant"),
+      confidence: readNumber("confidence"),
+      confidence_label: readString("confidence_label"),
+      evidence: readStringArray("evidence"),
+    },
+    pricing: {
+      currency: readString("currency") ?? readString("pricing_currency"),
+      new: {
+        average: readNumber("new_average"),
+        minimum: readNumber("new_minimum"),
+      },
+      used: {
+        low: readNumber("used_low"),
+        median: readNumber("used_median"),
+        high: readNumber("used_high"),
+      },
+      recommended: {
+        price: readNumber("recommended_price"),
+        rationale:
+          readString("pricing_rationale") ?? readString("rationale"),
+      },
+      sources: normalizedSources,
+    },
+    listing: {
+      title: readString("listing_title") ?? readString("title"),
+      description:
+        readString("listing_description") ?? readString("description"),
+      reason_for_selling: readString("reason_for_selling"),
+      issues: readStringArray("issues"),
+      loved: readStringArray("loved"),
+      highlights: readStringArray("highlights"),
+      condition: readString("condition"),
+      recommended_price: readNumber("recommended_price"),
+    },
+  };
+}, mergedResearchStageSchema);
+
 const geminiResponseSchema = z
   .object({
     candidates: z
@@ -478,16 +562,20 @@ export const processResearch = internalAction({
       const imageBase64 = arrayBufferToBase64(imageArrayBuffer);
 
       const openRouterKey = process.env.OPENROUTER_API_KEY;
-      if (!openRouterKey) {
-        throw new Error("OPENROUTER_API_KEY not configured");
-      }
-
-      const classification = await callOpenRouterClassifier({
-        apiKey: openRouterKey,
-        model: research.extractModelId || CLASSIFIER_MODEL_ID,
-        imageBase64,
-        mimeType: image.mimeType,
-      });
+      const geminiKey = process.env.GOOGLE_API_KEY;
+      const classification = openRouterKey
+        ? await callOpenRouterClassifier({
+            apiKey: openRouterKey,
+            model: research.extractModelId || CLASSIFIER_MODEL_ID,
+            imageBase64,
+            mimeType: image.mimeType,
+          })
+        : await callGeminiClassifier({
+            apiKey: geminiKey ?? "",
+            model: "gemini-2.5-flash",
+            imageBase64,
+            mimeType: image.mimeType,
+          });
 
       const extraction = normalizeClassification(classification);
       const classifierCondition = normalizeCondition(classification.condition);
@@ -527,7 +615,6 @@ export const processResearch = internalAction({
         return;
       }
 
-      const geminiKey = process.env.GOOGLE_API_KEY;
       if (!geminiKey) {
         throw new Error("GOOGLE_API_KEY not configured");
       }
@@ -573,7 +660,7 @@ export const processResearch = internalAction({
         classification,
       });
 
-      const parsedMerged = mergedResearchStageSchema.parse(mergedResearch);
+      const parsedMerged = normalizedResearchStageSchema.parse(mergedResearch);
       const finalizedPricing = finalizePricing(parsedMerged.pricing, resolvedCondition);
       const finalizedListing = finalizeListing({
         listing: parsedMerged.listing,
@@ -668,6 +755,73 @@ const callOpenRouterClassifier = async (
   );
 };
 
+const callGeminiClassifier = async (
+  params: z.infer<typeof classifierRequestSchema>
+) => {
+  const { apiKey, model, imageBase64, mimeType } =
+    classifierRequestSchema.parse(params);
+  if (!apiKey) {
+    throw new Error(
+      "OPENROUTER_API_KEY not configured and GOOGLE_API_KEY fallback unavailable"
+    );
+  }
+  const prompt = buildClassifierPrompt();
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType,
+                  data: imageBase64,
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.1,
+        },
+      }),
+    }
+  );
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Gemini classifier error: ${response.status} - ${responseText}`
+    );
+  }
+
+  const parsedResponse = geminiResponseSchema.parse(
+    safeJsonParse(responseText) ?? {}
+  );
+  const text = R.pipe(
+    parsedResponse.candidates?.[0]?.content?.parts ?? [],
+    R.map((part) => part.text),
+    R.filter((value) => typeof value === "string" && value.trim().length > 0),
+    (items) => items.join("\n").trim()
+  );
+
+  if (!text) {
+    throw new Error("Gemini classifier returned empty JSON payload");
+  }
+
+  return parseJsonWithSchema(
+    classifierStageSchema,
+    text,
+    "Gemini classifier returned invalid JSON"
+  );
+};
+
 const callGeminiResearch = async (
   params: z.infer<typeof geminiResearchRequestSchema>
 ) => {
@@ -718,13 +872,16 @@ const requestGeminiResearch = async (
   options: { includeSearch: boolean; includeThinking: boolean }
 ) => {
   const generationConfig: {
-    responseMimeType: string;
+    responseMimeType?: string;
     temperature: number;
     thinkingConfig?: { thinkingBudget: number };
   } = {
-    responseMimeType: "application/json",
     temperature: 0.2,
   };
+
+  if (!options.includeSearch) {
+    generationConfig.responseMimeType = "application/json";
+  }
 
   if (options.includeThinking) {
     generationConfig.thinkingConfig = { thinkingBudget: 4096 };
@@ -1314,6 +1471,13 @@ const parseJsonWithSchema = <T extends z.ZodTypeAny>(
   }
   const result = schema.safeParse(parsed);
   if (!result.success) {
+    const normalizedResult = normalizedResearchStageSchema.safeParse(parsed);
+    if (normalizedResult.success) {
+      const retryResult = schema.safeParse(normalizedResult.data);
+      if (retryResult.success) {
+        return retryResult.data;
+      }
+    }
     console.error("Schema validation failed:", result.error.issues);
     console.error("Parsed object:", JSON.stringify(parsed).slice(0, 500));
     throw new Error(

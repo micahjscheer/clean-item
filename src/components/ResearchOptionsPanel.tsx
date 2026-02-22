@@ -5,6 +5,7 @@ import {
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
+import { OptionSelector } from "@/components/shared/OptionSelector";
 import { cn } from "@/lib/utils";
 import type { ItemCondition } from "@/lib/workflowSchemas";
 
@@ -65,48 +66,22 @@ export function ResearchOptionsPanel({
 }: ResearchOptionsPanelProps) {
   return (
     <div className="space-y-6 p-6 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)]">
-      <div className="space-y-3">
-        <label className="text-sm font-medium text-[var(--color-text)]">
-          Item Condition
-        </label>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          {conditionOptions.map((option) => {
-            const Icon = option.icon;
-            const isSelected = condition === option.value;
-            return (
-              <button
-                key={option.value}
-                onClick={() => setCondition(option.value)}
-                className={cn(
-                  "relative flex flex-col items-center gap-2 p-4 rounded-xl border transition-all duration-200",
-                  isSelected
-                    ? "bg-[var(--color-accent-muted)] border-[var(--color-accent)] text-[var(--color-accent)]"
-                    : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]"
-                )}
-              >
-                <Icon className="w-5 h-5" />
-                <div className="text-center">
-                  <p className="text-sm font-medium">{option.label}</p>
-                  <p className="text-[10px] opacity-70">
-                    {option.description}
-                  </p>
-                </div>
-                {isSelected && (
-                  <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[var(--color-accent)]" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <OptionSelector
+        label="Item Condition"
+        value={condition}
+        onChange={setCondition}
+        options={conditionOptions}
+        columnsClassName="grid-cols-1 sm:grid-cols-2 xl:grid-cols-5"
+      />
 
-      <div className="text-xs text-[var(--color-text-subtle)]">
+      <div className="text-sm text-[var(--color-text-subtle)]">
         Runs Gemini 2.5 Flash classification first, then Gemini + OpenAI
         research with reasoning mode for pricing and listing copy.
       </div>
 
       {showStart && (
         <button
+          type="button"
           onClick={onStart}
           className={cn(
             "w-full py-4 px-6 rounded-xl font-semibold text-base transition-all duration-300",

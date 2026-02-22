@@ -38,21 +38,62 @@ export function BeforeAfterViewer({ beforeUrl, afterUrl }: BeforeAfterViewerProp
 
   const handleTouchMove = useCallback(
     (e: React.TouchEvent) => {
+      if (!isDragging.current) return;
       handleMove(e.touches[0].clientX);
     },
     [handleMove]
   );
 
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      isDragging.current = true;
+      handleMove(e.touches[0].clientX);
+    },
+    [handleMove]
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    isDragging.current = false;
+  }, []);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setSliderPosition((previous) => Math.max(0, previous - 2));
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setSliderPosition((previous) => Math.min(100, previous + 2));
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setSliderPosition(0);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setSliderPosition(100);
+    }
+  }, []);
+
   return (
     <div
       ref={containerRef}
+      role="slider"
+      tabIndex={0}
+      aria-label="Before and after slider"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(sliderPosition)}
       className="relative w-full aspect-video rounded-xl overflow-hidden cursor-ew-resize select-none"
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       onMouseMove={handleMouseMove}
+      onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       onClick={(e) => handleMove(e.clientX)}
+      onKeyDown={handleKeyDown}
     >
       {/* After image (full) */}
       <img
@@ -71,9 +112,9 @@ export function BeforeAfterViewer({ beforeUrl, afterUrl }: BeforeAfterViewerProp
           src={beforeUrl}
           alt="Before cleaning"
           className="absolute inset-0 w-full h-full object-contain bg-[var(--color-bg)]"
-          style={{ 
-            width: containerRef.current ? `${containerRef.current.offsetWidth}px` : '100%',
-            maxWidth: 'none'
+          style={{
+            width: containerRef.current ? `${containerRef.current.offsetWidth}px` : "100%",
+            maxWidth: "none",
           }}
           draggable={false}
         />
@@ -82,7 +123,7 @@ export function BeforeAfterViewer({ beforeUrl, afterUrl }: BeforeAfterViewerProp
       {/* Slider line */}
       <div
         className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg"
-        style={{ left: `${sliderPosition}%`, transform: 'translateX(-50%)' }}
+        style={{ left: `${sliderPosition}%`, transform: "translateX(-50%)" }}
       >
         {/* Slider handle */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white shadow-xl flex items-center justify-center">

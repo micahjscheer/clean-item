@@ -1,19 +1,11 @@
-import { useState, useMemo } from "react";
-import {
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  Clock,
-  Download,
-  RotateCcw,
-  Package,
-  ArrowLeft,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { Download, RotateCcw } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { cn, formatDimensions } from "@/lib/utils";
-import { BeforeAfterViewer } from "./BeforeAfterViewer";
-import * as R from "remeda";
+import { CleaningDetail } from "@/components/results/CleaningDetail";
+import { StatusCard } from "@/components/shared/StatusCard";
+import { ProgressBar } from "@/components/shared/ProgressBar";
+import { cn } from "@/lib/utils";
 import type { UploadedImage } from "@/routes/index";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 
@@ -44,21 +36,18 @@ export function JobsPanel({
 }: JobsPanelProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedImageId, setSelectedImageId] = useState<Id<"images"> | null>(null);
-
-  const statusCounts = R.countBy(jobs, (job) => job.status);
-  const succeededCount = statusCounts.succeeded ?? 0;
-  const failedCount = statusCounts.failed ?? 0;
-  const runningCount = statusCounts.running ?? 0;
-  const queuedCount = statusCounts.queued ?? 0;
+  const succeededCount = jobs.filter((job) => job.status === "succeeded").length;
+  const failedCount = jobs.filter((job) => job.status === "failed").length;
+  const finishedCount = succeededCount + failedCount;
 
   const imageMap = useMemo(() => {
-    const map = new Map<string, ImageWithUrl>();
+    const map = new Map<Id<"images">, ImageWithUrl>();
     images.forEach((img) => map.set(img._id, img));
     return map;
   }, [images]);
 
   const outputMap = useMemo(() => {
-    const map = new Map<string, Output>();
+    const map = new Map<Id<"images">, Output>();
     outputs.forEach((out) => map.set(out.imageId, out));
     return map;
   }, [outputs]);
@@ -108,7 +97,6 @@ export function JobsPanel({
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">
@@ -117,7 +105,7 @@ export function JobsPanel({
           <p className="text-sm text-[var(--color-text-muted)] mt-1">
             {allComplete
               ? `Completed • ${succeededCount} succeeded, ${failedCount} failed`
-              : `${runningCount} running, ${queuedCount} queued`}
+              : `${finishedCount}/${jobs.length} finished`}
           </p>
         </div>
 
@@ -159,137 +147,37 @@ export function JobsPanel({
         </div>
       </div>
 
-      {/* Progress summary */}
       {!allComplete && (
-        <div className="h-2 rounded-full bg-[var(--color-bg-elevated)] overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-[var(--color-accent)] to-cyan-500 transition-all duration-500"
-            style={{
-              width: `${jobs.length > 0 ? ((succeededCount + failedCount) / jobs.length) * 100 : 0}%`,
-            }}
-          />
-        </div>
+        <ProgressBar label="Cleaning Progress" value={finishedCount} total={jobs.length} />
       )}
 
-      {/* Job grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-        {jobs.map((job, index) => {
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+        {jobs.map((job) => {
           const image = imageMap.get(job.imageId);
           const output = outputMap.get(job.imageId);
           const uploadedImg = uploadedImages.find(
             (u) => image && u.file.name === image.fileName
           );
+          const previewUrl =
+            (job.status === "succeeded" ? output?.url : null) ?? uploadedImg?.preview ?? image?.url ?? "";
+          const footerLabel = output ? `${output.width}x${output.height}` : undefined;
+          const imageName = image?.fileName ?? "Image";
 
           return (
-            <div
+            <StatusCard
               key={job._id}
-              className={cn(
-                "group relative aspect-square rounded-xl overflow-hidden cursor-pointer",
-                "border bg-[var(--color-bg-elevated)] transition-all duration-200",
-                "animate-slide-up opacity-0",
-                `stagger-${Math.min(index + 1, 6)}`,
-                job.status === "succeeded"
-                  ? "border-[var(--color-success)]/30 hover:border-[var(--color-success)]"
-                  : job.status === "failed"
-                  ? "border-[var(--color-error)]/30"
-                  : "border-[var(--color-border)]"
-              )}
-              onClick={() => {
-                if (job.status === "succeeded") {
-                  setSelectedImageId(job.imageId);
-                }
-              }}
-            >
-              {/* Image */}
-              <img
-                src={
-                  job.status === "succeeded" && output?.url
-                    ? output.url
-                    : uploadedImg?.preview || image?.url || ""
-                }
-                alt={image?.fileName || ""}
-                className={cn(
-                  "w-full h-full object-cover transition-all duration-300",
-                  job.status === "running" && "blur-sm scale-105"
-                )}
-              />
-
-              {/* Status overlay */}
-              <div
-                className={cn(
-                  "absolute inset-0 flex items-center justify-center transition-opacity duration-300",
-                  job.status === "running" && "bg-black/40",
-                  job.status === "queued" && "bg-black/20",
-                  job.status === "succeeded" && "bg-transparent group-hover:bg-black/40",
-                  job.status === "failed" && "bg-[var(--color-error)]/20"
-                )}
-              >
-                {job.status === "queued" && (
-                  <div className="flex flex-col items-center gap-2">
-                    <Clock className="w-6 h-6 text-white/80" />
-                    <span className="text-xs text-white/80 font-medium">Queued</span>
-                  </div>
-                )}
-                {job.status === "running" && (
-                  <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="w-8 h-8 text-[var(--color-accent)] animate-spin" />
-                    <span className="text-xs text-white font-medium">
-                      {job.progressPct}%
-                    </span>
-                  </div>
-                )}
-                {job.status === "succeeded" && (
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (output) handleDownloadSingle(output);
-                      }}
-                      className="p-2 rounded-lg bg-white/20 backdrop-blur-sm hover:bg-white/30 transition-colors"
-                    >
-                      <Download className="w-5 h-5 text-white" />
-                    </button>
-                    <span className="text-xs text-white font-medium">View</span>
-                  </div>
-                )}
-                {job.status === "failed" && (
-                  <div className="flex flex-col items-center gap-2 p-3">
-                    <XCircle className="w-6 h-6 text-[var(--color-error)]" />
-                    <span className="text-xs text-white text-center font-medium">
-                      Failed
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Status badge */}
-              <div className="absolute top-2 left-2">
-                {job.status === "succeeded" && (
-                  <div className="p-1 rounded-md bg-[var(--color-success)] text-white">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                  </div>
-                )}
-                {job.status === "failed" && (
-                  <div className="p-1 rounded-md bg-[var(--color-error)] text-white">
-                    <XCircle className="w-3.5 h-3.5" />
-                  </div>
-                )}
-              </div>
-
-              {/* Dimensions badge for output */}
-              {job.status === "succeeded" && output && (
-                <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm">
-                  <span className="text-[10px] text-white font-mono">
-                    {formatDimensions(output.width, output.height)}
-                  </span>
-                </div>
-              )}
-            </div>
+              title={imageName}
+              subtitle={job.error ?? undefined}
+              imageUrl={previewUrl}
+              status={job.status}
+              progressPct={job.progressPct}
+              footerLabel={footerLabel}
+              onClick={() => setSelectedImageId(job.imageId)}
+            />
           );
         })}
       </div>
 
-      {/* Error details */}
       {failedCount > 0 && (
         <div className="p-4 rounded-xl bg-[var(--color-error)]/10 border border-[var(--color-error)]/20">
           <h4 className="text-sm font-medium text-[var(--color-error)] mb-2">
@@ -314,45 +202,26 @@ export function JobsPanel({
         </div>
       )}
 
-      {/* Before/After Modal */}
       {selectedImageId && selectedOutput && selectedImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-5xl max-h-[90vh] m-4 rounded-2xl overflow-hidden bg-[var(--color-bg-elevated)] border border-[var(--color-border)]">
-            <div className="flex items-center justify-between p-4 border-b border-[var(--color-border)]">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setSelectedImageId(null)}
-                  className="p-2 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
-                >
-                  <ArrowLeft className="w-5 h-5 text-[var(--color-text-muted)]" />
-                </button>
-                <div>
-                  <h3 className="font-medium">{selectedImage.fileName}</h3>
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    {formatDimensions(selectedImage.width, selectedImage.height)} →{" "}
-                    {formatDimensions(selectedOutput.width, selectedOutput.height)}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => handleDownloadSingle(selectedOutput)}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm",
-                  "bg-[var(--color-accent)] text-[var(--color-bg)]",
-                  "hover:bg-[var(--color-accent-hover)] transition-colors"
-                )}
-              >
-                <Download className="w-4 h-4" />
-                Download
-              </button>
-            </div>
-            <div className="p-4 overflow-auto max-h-[calc(90vh-80px)]">
-              <BeforeAfterViewer
-                beforeUrl={selectedImage.url || ""}
-                afterUrl={selectedOutput.url || ""}
-              />
-            </div>
-          </div>
+        <div className="space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+          <button
+            type="button"
+            onClick={() => setSelectedImageId(null)}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-sm text-[var(--color-text)]"
+          >
+            Back to Grid
+          </button>
+          <CleaningDetail
+            imageId={selectedImage._id}
+            imageName={selectedImage.fileName}
+            beforeUrl={selectedImage.url ?? ""}
+            afterUrl={selectedOutput.url ?? ""}
+            beforeWidth={selectedImage.width}
+            beforeHeight={selectedImage.height}
+            afterWidth={selectedOutput.width}
+            afterHeight={selectedOutput.height}
+            onDownload={() => handleDownloadSingle(selectedOutput)}
+          />
         </div>
       )}
     </div>
